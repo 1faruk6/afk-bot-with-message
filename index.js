@@ -13,7 +13,7 @@ const client = new Client({
 // Ayarlar (Environment Variables)
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
-const MC_HOST = process.env.MC_HOST || 'melonya.net';
+const MC_HOST = process.env.MC_HOST || 'oyna.melonya.net';
 const MC_PORT = parseInt(process.env.MC_PORT) || 25565;
 const MC_VERSION = process.env.MC_VERSION || '1.20.4';
 const MC_AUTH = process.env.MC_AUTH || 'offline'; // VARSAYILAN ARTIK OFFLINE (CRACKED)
