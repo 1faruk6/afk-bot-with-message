@@ -6,7 +6,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
+    "discord.js": "^14.14.1",
     "mineflayer": "^4.20.0"
   }
 }
