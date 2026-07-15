@@ -1,9 +1,11 @@
 {
-  "name": "melonya-afk-bot",
+  "name": "melonya-sadece-afk",
   "version": "1.0.0",
   "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
-    "firebase": "^8.10.1",
     "mineflayer": "^4.20.0"
   }
 }
