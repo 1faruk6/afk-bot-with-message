@@ -1,6 +1,5 @@
 const mineflayer = require('mineflayer');
 
-// Sunucu Bilgileri
 const MC_HOST = 'play.melonya.net';
 const MC_PORT = 25565;
 const MC_VERSION = '1.20.4';
@@ -16,38 +15,47 @@ function createBot() {
         host: MC_HOST,
         port: MC_PORT,
         username: MC_USERNAME,
-        auth: 'offline', // Cracked (orijinal olmayan) giriş modu
+        auth: 'offline', 
         version: MC_VERSION
     });
 
     bot.on('spawn', () => {
-        console.log('✅ Bot sunucuya başarıyla giriş yaptı!');
-        
-        // Sunucu içi otomatik giriş şifresi (/login [şifreniz])
+        console.log('✅ Bot sunucuya giriş yaptı!');
+
+        // 1. Giriş yapma (3. saniye)
         if (MC_PASSWORD) {
             setTimeout(() => {
                 bot.chat(`/login ${MC_PASSWORD}`);
-                console.log('🔑 Giriş şifresi otomatik olarak girildi.');
-            }, 3000); // Oyuna girdikten 3 saniye sonra yazar
+                console.log('🔑 Giriş şifresi yazıldı.');
+            }, 3000);
         }
 
-        // Anti-AFK: Sunucudan hareketsizlik nedeniyle atılmamak için her 30 saniyede bir hafifçe kafasını oynatır
+        // 2. 15 saniye sonra ilk /towny komutu (3sn login + 15sn = 18. saniye)
+        setTimeout(() => {
+            bot.chat('/towny');
+            console.log('📍 İlk /towny komutu gönderildi.');
+        }, 18000);
+
+        // 3. Her 10 dakikada bir /towny komutu (10 dakika = 600.000 ms)
+        setInterval(() => {
+            bot.chat('/towny');
+            console.log('⏲️ 10 dakika doldu, /towny yazıldı.');
+        }, 600000);
+
+        // Anti-AFK (Sunucudan atılmamak için 5 dakikada bir kafayı oynat)
         setInterval(() => {
             if (bot && bot.entity) {
-                const currentYaw = bot.entity.yaw;
-                const currentPitch = bot.entity.pitch;
-                // Kafayı hafifçe sağa çevir
-                bot.look(currentYaw + 0.3, currentPitch);
+                bot.look(bot.entity.yaw + 0.5, bot.entity.pitch);
             }
-        }, 30000);
+        }, 300000);
     });
 
     bot.on('kick', (reason) => {
-        console.log(`⚠️ Bot oyundan atıldı! Sebep:\n${reason}`);
+        console.log(`⚠️ Bot atıldı! Sebep: ${reason}`);
     });
 
     bot.on('end', () => {
-        console.log('❌ Bağlantı kesildi. 15 saniye sonra otomatik olarak tekrar bağlanmayı deneyeceğim...');
+        console.log('❌ Bağlantı kesildi. 15 saniye sonra tekrar denenecek...');
         setTimeout(createBot, 15000);
     });
 
@@ -56,5 +64,4 @@ function createBot() {
     });
 }
 
-// Sistemi Başlat
 createBot();
