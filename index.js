@@ -16,7 +16,7 @@ const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const MC_HOST = process.env.MC_HOST || 'melonya.net';
 const MC_PORT = parseInt(process.env.MC_PORT) || 25565;
 const MC_VERSION = process.env.MC_VERSION || '1.20.4';
-const MC_AUTH = process.env.MC_AUTH || 'microsoft';
+const MC_AUTH = process.env.MC_AUTH || 'offline'; // VARSAYILAN ARTIK OFFLINE (CRACKED)
 
 let bot;
 
@@ -27,9 +27,9 @@ function setBotPresence(statusText, isOnline = true) {
     client.user.setPresence({
         activities: [{
             name: statusText,
-            type: ActivityType.Playing // Discord'da "X oynuyor" olarak görünür
+            type: ActivityType.Playing
         }],
-        status: isOnline ? 'online' : 'dnd' // Oyundaysa Yeşil (Çevrimiçi), Değilse Kırmızı (Rahatsız Etmeyin) yanar
+        status: isOnline ? 'online' : 'dnd'
     });
 }
 
@@ -42,14 +42,21 @@ function createMcBot() {
         host: MC_HOST,
         port: MC_PORT,
         username: process.env.BOT_USERNAME,
-        password: process.env.BOT_PASSWORD,
-        auth: MC_AUTH,
+        auth: MC_AUTH, // Şifreyi sunucu içinde chatten göndereceğimiz için burası artık boş
         version: MC_VERSION
     });
 
     bot.on('spawn', () => {
         sendToDiscord('✅ **Minecraft botu sunucuya başarıyla giriş yaptı!**');
-        setBotPresence('Melonya.net | Oyunda 🟢', true); // Durumu güncelle
+        setBotPresence('Melonya.net | Oyunda 🟢', true);
+
+        // Sunucu içi otomatik şifre girme (/login [şifreniz])
+        if (process.env.BOT_PASSWORD) {
+            setTimeout(() => {
+                bot.chat(`/login ${process.env.BOT_PASSWORD}`);
+                sendToDiscord('🔑 **Sunucu içi otomatik giriş yapıldı (/login [şifre]).**');
+            }, 2000); // Girdikten 2 saniye sonra şifreyi otomatik yazar
+        }
     });
 
     // Oyundaki sohbeti (Chat) Discord kanalına yönlendirir
