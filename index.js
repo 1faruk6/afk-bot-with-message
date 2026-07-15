@@ -1,91 +1,60 @@
 const mineflayer = require('mineflayer');
-const firebase = require('firebase/app');
-require('firebase/database');
 
-// Firebase Bağlantı Kurulumu
-const firebaseConfig = {
-    databaseURL: process.env.FIREBASE_URL // Termux'tan göndereceğimiz adres
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-
-// Minecraft Sunucu Ayarları
-const MC_HOST = process.env.MC_HOST || 'play.melonya.net';
-const MC_PORT = parseInt(process.env.MC_PORT) || 25565;
-const MC_VERSION = process.env.MC_VERSION || '1.20.4';
-const MC_AUTH = process.env.MC_AUTH || 'offline'; 
+// Sunucu Bilgileri
+const MC_HOST = 'play.melonya.net';
+const MC_PORT = 25565;
+const MC_VERSION = '1.20.4';
+const MC_USERNAME = process.env.BOT_USERNAME;
+const MC_PASSWORD = process.env.BOT_PASSWORD;
 
 let bot;
 
-function createMcBot() {
-    console.log('🔄 Minecraft botu başlatılıyor...');
-    sendToApp('🔄 **Minecraft botu başlatılıyor...**');
-
+function createBot() {
+    console.log('🔄 Minecraft botu sunucuya bağlanıyor...');
+    
     bot = mineflayer.createBot({
         host: MC_HOST,
         port: MC_PORT,
-        username: process.env.BOT_USERNAME,
-        auth: MC_AUTH,
+        username: MC_USERNAME,
+        auth: 'offline', // Cracked (orijinal olmayan) giriş modu
         version: MC_VERSION
     });
 
     bot.on('spawn', () => {
-        console.log('✅ Bot sunucuya giriş yaptı!');
-        sendToApp('✅ **Minecraft botu sunucuya girdi!**');
-
-        // Otomatik Giriş Şifresi
-        if (process.env.BOT_PASSWORD) {
+        console.log('✅ Bot sunucuya başarıyla giriş yaptı!');
+        
+        // Sunucu içi otomatik giriş şifresi (/login [şifreniz])
+        if (MC_PASSWORD) {
             setTimeout(() => {
-                bot.chat(`/login ${process.env.BOT_PASSWORD}`);
-                sendToApp('🔑 **Otomatik giriş yapıldı (/login [şifre]).**');
-            }, 2000);
+                bot.chat(`/login ${MC_PASSWORD}`);
+                console.log('🔑 Giriş şifresi otomatik olarak girildi.');
+            }, 3000); // Oyuna girdikten 3 saniye sonra yazar
         }
-    });
 
-    // Oyundaki chat mesajlarını Firebase veritabanına gönderir (Uygulamaya akması için)
-    bot.on('chat', (username, message) => {
-        if (username === bot.username) return; // Kendi yazdıklarını göndermesin
-        sendToApp(`💬 [${username}]: ${message}`);
+        // Anti-AFK: Sunucudan hareketsizlik nedeniyle atılmamak için her 30 saniyede bir hafifçe kafasını oynatır
+        setInterval(() => {
+            if (bot && bot.entity) {
+                const currentYaw = bot.entity.yaw;
+                const currentPitch = bot.entity.pitch;
+                // Kafayı hafifçe sağa çevir
+                bot.look(currentYaw + 0.3, currentPitch);
+            }
+        }, 30000);
     });
 
     bot.on('kick', (reason) => {
-        sendToApp(`⚠️ **Bot oyundan atıldı!** Sebep: ${reason}`);
+        console.log(`⚠️ Bot oyundan atıldı! Sebep:\n${reason}`);
     });
 
     bot.on('end', () => {
-        sendToApp('❌ **Bağlantı kesildi.** 15 saniye sonra tekrar bağlanacak...');
-        setTimeout(createMcBot, 15000);
+        console.log('❌ Bağlantı kesildi. 15 saniye sonra otomatik olarak tekrar bağlanmayı deneyeceğim...');
+        setTimeout(createBot, 15000);
     });
 
     bot.on('error', (err) => {
-        console.error('Bot hatası:', err);
+        console.error('🔴 Bot hatası:', err);
     });
 }
 
-// Uygulamaya (Firebase'e) Veri Gönderme Fonksiyonu
-function sendToApp(message) {
-    db.ref('chat').set(message);
-}
-
-// Uygulamadan (Firebase'den) Gelen Komutları Dinleme
-let firstLoad = true;
-db.ref('command').on('value', (snapshot) => {
-    if (firstLoad) {
-        firstLoad = false;
-        return; // İlk açılıştaki eski komutları göndermemesi için pas geçiyoruz
-    }
-
-    const cmd = snapshot.val();
-    if (cmd && cmd !== '') {
-        if (bot && bot.entity) {
-            bot.chat(cmd); // Komutu oyuna gönderir
-            console.log(`📤 Uygulamadan gelen mesaj oyuna gönderildi: ${cmd}`);
-        }
-        // Komut çalıştıktan sonra Firebase'deki komut kutusunu temizler
-        db.ref('command').set('');
-    }
-});
-
-// Botu Tetikle
-createMcBot();
+// Sistemi Başlat
+createBot();
