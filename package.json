@@ -2,11 +2,8 @@
   "name": "melonya-afk-bot",
   "version": "1.0.0",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
   "dependencies": {
-    "discord.js": "^14.14.1",
+    "firebase": "^8.10.1",
     "mineflayer": "^4.20.0"
   }
 }
