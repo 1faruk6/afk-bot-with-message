@@ -25,26 +25,17 @@ let townyTimer;
 let isConnected = false;
 let chatLog = []; // Maksimum 100 mesajlık geçmiş
 
-// --- AYAR DOSYASI KONTROLÜ (PERSISTENCE) ---
+// --- AYAR DOSYASI KONTROLÜ (BAŞLANGIÇTA TAMAMEN BOŞ) ---
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
 let settings = {
-  intervalMessages: [
-    { text: "Aktif durumdayım! (Zaman Ayarlı)", waitMinutes: 3 },
-    { text: "Melonya Towny AFK Botu devrede.", waitMinutes: 5 }
-  ],
-  autoReplies: [
-    { trigger: "selam", reply: "Aleykum selam! Şu an AFK'yım, en kısa sürede döneceğim." },
-    { trigger: "aktif misin", reply: "Evet, otomatik AFK botu aktif durumda." }
-  ],
+  intervalMessages: [], // Tamamen boş başlangıç
+  autoReplies: [],      // Tamamen boş başlangıç
   notifications: {
     enabled: true,
-    ntfyTopic: "melonya_afk_bot_ozel_kanal_" + Math.random().toString(36).substring(2, 8),
-    triggers: ["acil", "neredesin", "baksana", "hey"]
+    ntfyTopic: "randombros_afk_notification", // İstediğin sabit kanal adı
+    triggers: []        // Boş başlangıç
   },
-  shortcuts: [
-    { key: "1", label: "Towny'ye Git", command: "/towny" },
-    { key: "2", label: "Lobiye Dön", command: "/lobby" }
-  ]
+  shortcuts: []         // Tamamen boş başlangıç
 };
 
 if (fs.existsSync(SETTINGS_PATH)) {
@@ -174,6 +165,7 @@ app.get('/', (req, res) => {
         .shortcut-btn { background: #2196f3; margin-right: 8px; margin-bottom: 8px; display: inline-flex; align-items: center; }
         .shortcut-btn:hover { background: #0b7dda; }
         .list-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 14px; }
+        .empty-placeholder { font-size: 13px; color: #777; font-style: italic; margin: 5px 0; }
       </style>
     </head>
     <body>
@@ -185,7 +177,7 @@ app.get('/', (req, res) => {
             <div class="status">Sistem: ${statusText}</div>
             <div id="chatBox" class="chat-box"></div>
             <div style="margin-top: 15px; display: flex; gap: 8px;">
-              <input type="text" id="manualMessage" placeholder="Sohbete mesaj veya /komut gönder..." style="margin:0; flex: 1;">
+              <input type="text" id="manualMessage" placeholder="Oyuna mesaj veya komut gönderin... (Örn: /towny spawn)" style="margin:0; flex: 1;">
               <button onclick="sendManualMessage()">Gönder</button>
             </div>
           </div>
@@ -193,28 +185,30 @@ app.get('/', (req, res) => {
           <div class="card">
             <h3>Klavye Kısayolları</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Panel açıkken klavyenizden belirlenen tuşa basarak hızlıca komut gönderebilirsiniz.</p>
+            
             <div id="shortcutsContainer" style="margin-bottom: 15px;">
-              ${settings.shortcuts.map(s => `
+              ${settings.shortcuts.length > 0 ? settings.shortcuts.map(s => `
                 <button class="shortcut-btn" onclick="sendCustomMessage('${s.command}')">
                   <span class="badge">${s.key.toUpperCase()}</span> ${s.label}
                 </button>
-              `).join('')}
+              `).join('') : '<p class="empty-placeholder">Henüz hiç kısayol eklenmedi. Aşağıdan yeni bir tane oluşturabilirsiniz.</p>'}
             </div>
+            
             <hr style="border-color: #2a2a2a; margin: 15px 0;">
             <h4>Kısayol Düzenleme:</h4>
             <div id="shortcutList" style="margin-bottom:15px;">
-              ${settings.shortcuts.map((s, index) => `
+              ${settings.shortcuts.length > 0 ? settings.shortcuts.map((s, index) => `
                 <div class="list-item">
                   <span><b style="color:#2196f3;">[${s.key.toUpperCase()}]</b> ${s.label} <small style="color:#aaa;">(${s.command})</small></span>
                   <button class="btn-danger" onclick="deleteShortcut(${index})">Sil</button>
                 </div>
-              `).join('')}
+              `).join('') : '<p class="empty-placeholder">Düzenlenecek kısayol bulunmuyor.</p>'}
             </div>
             
             <div style="display: grid; grid-template-columns: 1fr 2fr 2fr; gap: 5px;">
-              <input type="text" id="newShortKey" placeholder="Tuş (g)" maxlength="1">
-              <input type="text" id="newShortLabel" placeholder="Kısayol Adı">
-              <input type="text" id="newShortCmd" placeholder="Komut (Örn: /towny)">
+              <input type="text" id="newShortKey" placeholder="Tuş (Örn: g)" maxlength="1">
+              <input type="text" id="newShortLabel" placeholder="Kısayol Başlığı (Örn: Towny'ye Git)">
+              <input type="text" id="newShortCmd" placeholder="Çalışacak Komut (Örn: /towny)">
             </div>
             <button onclick="addShortcut()" style="width: 100%; margin-top: 8px;">Yeni Kısayol Ekle</button>
           </div>
@@ -224,16 +218,16 @@ app.get('/', (req, res) => {
           <div class="card">
             <h3>⏰ Periyodik Mesaj Döngüsü</h3>
             <div id="intervalList" style="margin-bottom: 15px;">
-              ${settings.intervalMessages.map((m, index) => `
+              ${settings.intervalMessages.length > 0 ? settings.intervalMessages.map((m, index) => `
                 <div class="list-item">
                   <span>"${m.text}" <small style="color:#aaa;">(${m.waitMinutes} dk)</small></span>
                   <button class="btn-danger" onclick="deleteInterval(${index})">Sil</button>
                 </div>
-              `).join('')}
+              `).join('') : '<p class="empty-placeholder">Aktif bir döngü mesajı yok. Aşağıdan süreli mesaj tanımlayabilirsiniz.</p>'}
             </div>
             <h4>Yeni Zaman Ayarlı Mesaj:</h4>
-            <input type="text" id="newIntervalText" placeholder="Mesaj içeriği...">
-            <input type="number" id="newIntervalMinutes" placeholder="Bekleme Süresi (Dakika)" value="3">
+            <input type="text" id="newIntervalText" placeholder="Sohbete otomatik atılacak mesaj... (Örn: Bot aktif durumdadır.)">
+            <input type="number" id="newIntervalMinutes" placeholder="Kaç dakikada bir gönderilsin? (Örn: 5)">
             <button onclick="addInterval()" style="width:100%;">Mesajı Döngüye Ekle</button>
           </div>
 
@@ -241,26 +235,26 @@ app.get('/', (req, res) => {
             <h3>🤖 Otomatik Cevaplar</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Sohbette tetikleyici kelime geçtiğinde botun vereceği otomatik cevaplar.</p>
             <div id="autoReplyList" style="margin-bottom: 15px;">
-              ${settings.autoReplies.map((r, index) => `
+              ${settings.autoReplies.length > 0 ? settings.autoReplies.map((r, index) => `
                 <div class="list-item">
                   <span><b style="color:#ff9800;">"${r.trigger}"</b> ➜ "${r.reply}"</span>
                   <button class="btn-danger" onclick="deleteAutoReply(${index})">Sil</button>
                 </div>
-              `).join('')}
+              `).join('') : '<p class="empty-placeholder">Kayıtlı otomatik cevap bulunmuyor.</p>'}
             </div>
             <hr style="border-color: #2a2a2a; margin: 15px 0;">
             <h4>Yeni Otomatik Cevap Ekle:</h4>
-            <input type="text" id="newTrigger" placeholder="Tetikleyici Kelime (Örn: selam)">
-            <input type="text" id="newReply" placeholder="Botun Vereceği Cevap">
+            <input type="text" id="newTrigger" placeholder="Tetikleyecek kelime... (Örn: selam)">
+            <input type="text" id="newReply" placeholder="Botun vereceği otomatik yanıt... (Örn: Aleyküm selam!)">
             <button onclick="addAutoReply()" style="width:100%;">Oto-Cevap Ekle</button>
           </div>
 
           <div class="card">
             <h3>🔔 Telefona Bildirim (ntfy.sh)</h3>
             <label style="font-size:12px; color:#aaa;">Kanal Adı (ntfy.sh Topic):</label>
-            <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic}">
+            <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic || ''}" placeholder="ntfy.sh kanal adınız (Örn: randombros_afk_notification)">
             <label style="font-size:12px; color:#aaa;">Tetikleyici Kelimeler (virgülle ayırın):</label>
-            <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers.join(', ')}">
+            <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers ? settings.notifications.triggers.join(', ') : ''}" placeholder="Hangi kelimeler geçince telefona bildirim gelsin? (Örn: acil, yardim, baksana)">
             
             <div style="display: flex; gap: 8px; margin-top: 10px;">
               <button onclick="saveNotificationSettings()" style="flex: 1;">Ayarları Kaydet</button>
@@ -408,7 +402,7 @@ app.get('/', (req, res) => {
         // --- BİLDİRİM AYARLARI ---
         function saveNotificationSettings() {
           const ntfyTopic = document.getElementById('ntfyTopic').value;
-          const triggers = document.getElementById('ntfyTriggers').value.split(',').map(x => x.trim());
+          const triggers = document.getElementById('ntfyTriggers').value.split(',').map(x => x.trim()).filter(x => x !== "");
 
           fetch('/settings/save-notifications', {
             method: 'POST',
@@ -552,7 +546,7 @@ app.listen(PORT, () => {
 });
 
 
-// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (YENİ VE HATASIZ JSON PAYLOAD SİSTEMİ) ---
+// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (GÜVENLİ PLAIN TEXT / CURL METODU) ---
 function sendPushNotification(title, text) {
   if (!settings.notifications.enabled) return;
   
@@ -562,23 +556,16 @@ function sendPushNotification(title, text) {
     return;
   }
 
-  // Gönderilecek JSON verisini hazırlıyoruz (Böylece Header ile uğraşmıyoruz, Türkçe karakterler de sorunsuz gidiyor)
-  const payload = JSON.stringify({
-    topic: topic,
-    title: title,
-    message: text,
-    priority: 4, // Yüksek öncelik
-    tags: ["warning", "bell"]
-  });
+  // Başlık ve mesajı doğrudan düz metin haline getiriyoruz.
+  const fullMessage = `📢 ${title}\n\n${text}`;
 
   const options = {
     hostname: 'ntfy.sh',
     port: 443,
-    path: '/',
+    path: `/${topic}`,
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Content-Length': Buffer.byteLength(payload)
+      'Content-Type': 'text/plain; charset=utf-8'
     }
   };
 
@@ -589,16 +576,16 @@ function sendPushNotification(title, text) {
       if (res.statusCode === 200) {
         console.log(`[Bildirim] Telefona bildirim başarıyla yollandı! Kanal: ${topic}`);
       } else {
-        console.error(`[Bildirim] ntfy.sh API Hatası (Kod: ${res.statusCode}):`, responseData);
+        console.error(`[Bildirim] ntfy.sh Hatası (Kod: ${res.statusCode}):`, responseData);
       }
     });
   });
 
   req.on('error', (err) => {
-    console.error('[Bildirim] HTTPS isteği başarısız oldu (İnternet bağlantınızı kontrol edin):', err.message);
+    console.error('[Bildirim] HTTPS isteği başarısız oldu:', err.message);
   });
 
-  req.write(payload);
+  req.write(Buffer.from(fullMessage, 'utf-8'));
   req.end();
 }
 
@@ -681,7 +668,7 @@ function createBot() {
       }
 
       // --- B. TELEFONA BİLDİRİM KONTROLÜ ---
-      if (settings.notifications.enabled) {
+      if (settings.notifications.enabled && settings.notifications.triggers.length > 0) {
         const hasTrigger = settings.notifications.triggers.some(trigger => 
           cleanMessageLower.includes(trigger.toLowerCase())
         );
