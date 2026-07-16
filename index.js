@@ -3,7 +3,6 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const path = require('path');
-const https = require('https'); // Yerleşik HTTPS modülü
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -12,23 +11,25 @@ app.use(cookieParser());
 
 // --- GİZLİ ŞİFRE VE BOT AYARLARI ---
 const botUsername = process.env.BOT_USERNAME || "RaNdOmBrOs_afk";
-const accountPassword = process.env.BOT_PASSWORD || "123456"; // Panel ve oyun giriş şifresi
+const accountPassword = process.env.BOT_PASSWORD || "123456"; // Panel ve oyun şifresi
 
 const botOptions = {
   host: 'oyna.melonya.net',
   username: botUsername,
-  version: '1.20.4'
+  version: '1.20.4',
+  checkTimeoutInterval: 60000, // Bağlantı kopmalarına karşı tolerans süresi
+  respawn: true
 };
 
 let bot;
 let townyTimer;
 let isConnected = false;
 let chatLog = []; // Maksimum 100 mesajlık geçmiş
+let reconnectTimeout = null; // Çift bağlantıyı önleyen zamanlayıcı hafızası
 
-// --- AYAR DOSYASI KONTROLÜ (RAILWAY KALICI DISK DESTEKLİ VE BOŞ BAŞLANGIÇ) ---
+// --- AYAR DOSYASI KONTROLÜ (KALICI STORAGE DESTEKLİ) ---
 const STORAGE_DIR = path.join(__dirname, 'storage');
 
-// Eğer klasör yoksa (ilk kurulumda veya lokalde) otomatik oluşturur
 if (!fs.existsSync(STORAGE_DIR)) {
   fs.mkdirSync(STORAGE_DIR, { recursive: true });
 }
@@ -36,30 +37,18 @@ if (!fs.existsSync(STORAGE_DIR)) {
 const SETTINGS_PATH = path.join(STORAGE_DIR, 'settings.json');
 
 let settings = {
-  intervalMessages: [], // Tamamen temiz başlangıç
-  autoReplies: [],      // Tamamen temiz başlangıç
-  notifications: {
-    enabled: true,
-    ntfyTopic: "randombros_afk_notification", // İstediğin sabit kanal adı
-    ntfyToken: "", // Railway kota engeli aşımı için Token alanı
-    triggers: []   // Boş başlangıç
-  },
-  shortcuts: []         // Tamamen temiz başlangıç
+  intervalMessages: [],
+  autoReplies: [],
+  shortcuts: []
 };
 
 if (fs.existsSync(SETTINGS_PATH)) {
   try {
-    settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-    // Geriye dönük uyumluluk kontrolleri
-    if (!settings.notifications) {
-      settings.notifications = { enabled: true, ntfyTopic: "randombros_afk_notification", ntfyToken: "", triggers: [] };
-    }
-    if (settings.notifications && !settings.notifications.hasOwnProperty('ntfyToken')) {
-      settings.notifications.ntfyToken = "";
-    }
-    if (!settings.notifications.ntfyTopic) {
-      settings.notifications.ntfyTopic = "randombros_afk_notification";
-    }
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+    // Eski ayarlardan kalan bildirim verilerini temizleyerek güvenli yükleme yapıyoruz
+    settings.intervalMessages = raw.intervalMessages || [];
+    settings.autoReplies = raw.autoReplies || [];
+    settings.shortcuts = raw.shortcuts || [];
   } catch (e) {
     console.log("Ayarlar dosyası okunamadı, varsayılanlar yükleniyor.");
   }
@@ -184,7 +173,6 @@ app.get('/', (req, res) => {
     <body>
       <div class="dashboard">
         
-        <!-- SOL SÜTUN -->
         <div class="column">
           <div class="card" style="flex: 1; display: flex; flex-direction: column;">
             <h2>Melonya Canlı Sohbet</h2>
@@ -196,7 +184,6 @@ app.get('/', (req, res) => {
             </div>
           </div>
 
-          <!-- KISAYOL KARTI -->
           <div class="card">
             <h3>Klavye Kısayolları</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Panel açıkken klavyenizden belirlenen tuşa basarak hızlıca komut gönderebilirsiniz.</p>
@@ -221,15 +208,14 @@ app.get('/', (req, res) => {
             </div>
             
             <div style="display: grid; grid-template-columns: 1fr 2fr 2fr; gap: 5px;">
-              <input type="text" id="newShortKey" placeholder="Klavye Tuşu (Örn: g)" maxlength="1">
-              <input type="text" id="newShortLabel" placeholder="Kısayol Başlığı (Örn: Towny'ye Git)">
-              <input type="text" id="newShortCmd" placeholder="Çalışacak Komut (Örn: /towny)">
+              <input type="text" id="newShortKey" placeholder="Tuş (Örn: g)" maxlength="1">
+              <input type="text" id="newShortLabel" placeholder="Başlık (Örn: Towny'ye Git)">
+              <input type="text" id="newShortCmd" placeholder="Komut (Örn: /towny)">
             </div>
             <button onclick="addShortcut()" style="width: 100%; margin-top: 8px;">Yeni Kısayol Ekle</button>
           </div>
         </div>
 
-        <!-- SAĞ SÜTUN -->
         <div class="column">
           <div class="card">
             <h3>⏰ Periyodik Mesaj Döngüsü</h3>
@@ -242,12 +228,11 @@ app.get('/', (req, res) => {
               `).join('') : '<p class="empty-placeholder">Aktif bir döngü mesajı yok. Aşağıdan süreli mesaj tanımlayabilirsiniz.</p>'}
             </div>
             <h4>Yeni Zaman Ayarlı Mesaj:</h4>
-            <input type="text" id="newIntervalText" placeholder="Sohbete otomatik atılacak mesaj... (Örn: Bot aktif durumdadır.)">
-            <input type="number" id="newIntervalMinutes" placeholder="Kaç dakikada bir gönderilsin? (Örn: 5)">
+            <input type="text" id="newIntervalText" placeholder="Sohbete otomatik atılacak mesaj...">
+            <input type="number" id="newIntervalMinutes" placeholder="Kaç dakikada bir gönderilsin?">
             <button onclick="addInterval()" style="width:100%;">Mesajı Döngüye Ekle</button>
           </div>
 
-          <!-- OTO CEVAPLAR -->
           <div class="card">
             <h3>🤖 Otomatik Cevaplar</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Sohbette tetikleyici kelime geçtiğinde botun vereceği otomatik cevaplar.</p>
@@ -264,24 +249,6 @@ app.get('/', (req, res) => {
             <input type="text" id="newTrigger" placeholder="Tetikleyecek kelime... (Örn: selam)">
             <input type="text" id="newReply" placeholder="Botun vereceği otomatik yanıt... (Örn: Aleyküm selam!)">
             <button onclick="addAutoReply()" style="width:100%;">Oto-Cevap Ekle</button>
-          </div>
-
-          <!-- BİLDİRİM AYARLARI -->
-          <div class="card">
-            <h3>🔔 Telefona Bildirim (ntfy.sh)</h3>
-            <label style="font-size:12px; color:#aaa;">Kanal Adı (ntfy.sh Topic):</label>
-            <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic || ''}" placeholder="ntfy.sh kanal adınız (Örn: randombros_afk_notification)">
-            
-            <label style="font-size:12px; color:#aaa; display:block; margin-top:8px;">ntfy.sh Erişim Anahtarı (Kota Sorununu Çözer):</label>
-            <input type="text" id="ntfyToken" value="${settings.notifications.ntfyToken || ''}" placeholder="ntfy.sh sitesinden aldığınız tk_ ile başlayan token (Gerekliyse)">
-            
-            <label style="font-size:12px; color:#aaa; display:block; margin-top:8px;">Tetikleyici Kelimeler (virgülle ayırın):</label>
-            <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers ? settings.notifications.triggers.join(', ') : ''}" placeholder="Hangi kelimeler geçince telefona bildirim gelsin? (Örn: acil, yardim, baksana)">
-            
-            <div style="display: flex; gap: 8px; margin-top: 15px;">
-              <button onclick="saveNotificationSettings()" style="flex: 1;">Ayarları Kaydet</button>
-              <button onclick="sendTestNotification()" style="background: #2196f3; flex: 1;">Test Bildirimi Gönder</button>
-            </div>
           </div>
         </div>
 
@@ -420,36 +387,6 @@ app.get('/', (req, res) => {
             body: JSON.stringify({ index })
           }).then(() => location.reload());
         }
-
-        // --- BİLDİRİM AYARLARI ---
-        function saveNotificationSettings() {
-          const ntfyTopic = document.getElementById('ntfyTopic').value.trim();
-          const ntfyToken = document.getElementById('ntfyToken').value.trim();
-          const triggers = document.getElementById('ntfyTriggers').value.split(',').map(x => x.trim()).filter(x => x !== "");
-
-          fetch('/settings/save-notifications', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ntfyTopic, ntfyToken, triggers })
-          })
-          .then(r => r.json())
-          .then(data => {
-            if(data.success) showToast("Bildirim ayarları kaydedildi!");
-          });
-        }
-
-        // TEST BİLDİRİMİ TETİKLEYİCİSİ
-        function sendTestNotification() {
-          fetch('/settings/test-notification', { method: 'POST' })
-            .then(r => r.json())
-            .then(data => {
-              if(data.success) {
-                showToast("Test bildirimi ntfy'ye gönderildi!");
-              } else {
-                showToast("Hata: " + data.message);
-              }
-            });
-        }
       </script>
     </body>
     </html>
@@ -543,26 +480,6 @@ app.post('/settings/delete-shortcut', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/settings/save-notifications', (req, res) => {
-  if (!isAuthenticated(req)) return res.sendStatus(403);
-  const { ntfyTopic, ntfyToken, triggers } = req.body;
-  settings.notifications.ntfyTopic = ntfyTopic;
-  settings.notifications.ntfyToken = ntfyToken;
-  settings.notifications.triggers = triggers;
-  saveSettings();
-  res.json({ success: true });
-});
-
-// TEST BİLDİRİMİ API'Sİ
-app.post('/settings/test-notification', (req, res) => {
-  if (!isAuthenticated(req)) return res.sendStatus(403);
-  sendPushNotification(
-    "Melonya Bot - Test",
-    "Melonya botundan test bildirimi başarıyla telefona ulaştı! 🎉"
-  );
-  res.json({ success: true });
-});
-
 // --- PORT DİNLEME ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
@@ -570,54 +487,21 @@ app.listen(PORT, () => {
 });
 
 
-// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (GÜVENLİ PLAIN TEXT / TOKEN DESTEKLİ) ---
-function sendPushNotification(title, text) {
-  if (!settings.notifications.enabled) return;
+// --- GÜVENLİ VE TEKLİ RECONNECT SİSTEMİ (ÇİFT BAĞLANTIYI ÖNLER) ---
+function triggerReconnect() {
+  if (reconnectTimeout) return; // Zaten bir yeniden bağlanma süreci başlamışsa durdurur
   
-  const topic = settings.notifications.ntfyTopic.trim().replace(/\s+/g, '_');
-  if (!topic) {
-    console.error('[Bildirim] Hata: ntfy kanal adı boş!');
-    return;
-  }
+  isConnected = false;
+  addChatToLog("SİSTEM", "Bağlantı kesildi! 10 saniye sonra tekrar bağlanmaya çalışacak...");
+  console.log('Bağlantı koptu. Güvenli zamanlayıcı başlatılıyor...');
 
-  // Başlık ve mesajı doğrudan düz metin gövdesi yapıyoruz (curl -d simülasyonu)
-  const fullMessage = `📢 ${title}\n\n${text}`;
+  if (townyTimer) clearInterval(townyTimer);
+  if (intervalTimeout) clearTimeout(intervalTimeout);
 
-  const headers = {
-    'Content-Type': 'text/plain; charset=utf-8'
-  };
-
-  // Eğer kullanıcı panelden bir token kaydettiyse isteğe yetkilendirme ekle (Kota Çözümü)
-  if (settings.notifications.ntfyToken && settings.notifications.ntfyToken.trim() !== "") {
-    headers['Authorization'] = `Bearer ${settings.notifications.ntfyToken.trim()}`;
-  }
-
-  const options = {
-    hostname: 'ntfy.sh',
-    port: 443,
-    path: `/${topic}`,
-    method: 'POST',
-    headers: headers
-  };
-
-  const req = https.request(options, (res) => {
-    let responseData = '';
-    res.on('data', (chunk) => { responseData += chunk; });
-    res.on('end', () => {
-      if (res.statusCode === 200) {
-        console.log(`[Bildirim] Telefona bildirim başarıyla yollandı! Kanal: ${topic}`);
-      } else {
-        console.error(`[Bildirim] ntfy.sh Hatası (Kod: ${res.statusCode}):`, responseData);
-      }
-    });
-  });
-
-  req.on('error', (err) => {
-    console.error('[Bildirim] HTTPS isteği başarısız oldu:', err.message);
-  });
-
-  req.write(Buffer.from(fullMessage, 'utf-8'));
-  req.end();
+  reconnectTimeout = setTimeout(() => {
+    reconnectTimeout = null;
+    createBot();
+  }, 10000); // 10 saniye sonra güvenli bir şekilde tek bağlantı dener
 }
 
 
@@ -683,7 +567,7 @@ function createBot() {
 
       addChatToLog(sender, text);
 
-      // --- A. OTOMATİK CEVAP KONTROLÜ ---
+      // --- OTOMATİK CEVAP KONTROLÜ ---
       const cleanMessageLower = text.toLowerCase();
       for (const rule of settings.autoReplies) {
         if (cleanMessageLower.includes(rule.trigger.toLowerCase())) {
@@ -697,34 +581,16 @@ function createBot() {
           break;
         }
       }
-
-      // --- B. TELEFONA BİLDİRİM KONTROLÜ ---
-      if (settings.notifications.enabled && settings.notifications.triggers.length > 0) {
-        const hasTrigger = settings.notifications.triggers.some(trigger => 
-          cleanMessageLower.includes(trigger.toLowerCase())
-        );
-
-        if (hasTrigger) {
-          sendPushNotification(
-            "Melonya AFK - Önemli Kelime!",
-            `Oyuncu: ${sender}\nMesaj: ${text}`
-          );
-        }
-      }
     }
   });
 
   bot.on('end', () => {
-    isConnected = false;
-    addChatToLog("SİSTEM", "Bağlantı kesildi! 15 saniye sonra tekrar denenecek.");
-    if (townyTimer) clearInterval(townyTimer);
-    if (intervalTimeout) clearTimeout(intervalTimeout);
-    setTimeout(createBot, 15000);
+    triggerReconnect();
   });
 
   bot.on('error', (err) => {
-    isConnected = false;
-    addChatToLog("SİSTEM", `HATA: ${err.message}`);
+    console.error(`[Minecraft Hatası]: ${err.message || err}`);
+    triggerReconnect();
   });
 }
 
