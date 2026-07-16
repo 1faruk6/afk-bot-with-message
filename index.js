@@ -25,22 +25,27 @@ let townyTimer;
 let isConnected = false;
 let chatLog = []; // Maksimum 100 mesajlık geçmiş
 
-// --- AYAR DOSYASI KONTROLÜ (BAŞLANGIÇTA TAMAMEN BOŞ) ---
+// --- AYAR DOSYASI KONTROLÜ ---
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
 let settings = {
-  intervalMessages: [], // Tamamen boş başlangıç
-  autoReplies: [],      // Tamamen boş başlangıç
+  intervalMessages: [],
+  autoReplies: [],
   notifications: {
     enabled: true,
-    ntfyTopic: "randombros_afk_notification", // İstediğin sabit kanal adı
-    triggers: []        // Boş başlangıç
+    ntfyTopic: "randombros_afk_notification",
+    ntfyToken: "", // Yeni eklenen kota aşımı engelleyici Token alanı
+    triggers: []
   },
-  shortcuts: []         // Tamamen boş başlangıç
+  shortcuts: []
 };
 
 if (fs.existsSync(SETTINGS_PATH)) {
   try {
     settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+    // Eski ayarlarda ntfyToken yoksa nesneye dahil et
+    if (settings.notifications && !settings.notifications.hasOwnProperty('ntfyToken')) {
+      settings.notifications.ntfyToken = "";
+    }
   } catch (e) {
     console.log("Ayarlar dosyası okunamadı, varsayılanlar yükleniyor.");
   }
@@ -104,8 +109,6 @@ app.get('/', (req, res) => {
           .login-box { background: #1e1e1e; padding: 35px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); width: 100%; max-width: 320px; text-align: center; }
           h2 { color: #4caf50; margin-bottom: 20px; }
           input[type="password"] { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #333; background: #2a2a2a; color: #fff; border-radius: 6px; box-sizing: border-box; }
-          .remember-container { display: flex; align-items: center; justify-content: start; font-size: 13px; color: #aaa; margin: 10px 0 20px 0; }
-          .remember-container input { margin-right: 8px; }
           button { width: 100%; padding: 12px; background: #4caf50; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.2s; }
           button:hover { background: #45a049; }
           .error { color: #f44336; font-size: 13px; margin-top: 10px; }
@@ -116,10 +119,6 @@ app.get('/', (req, res) => {
           <h2>Panel Girişi</h2>
           <form action="/login" method="POST">
             <input type="password" name="pin" placeholder="Panel Giriş Şifresi" required>
-            <div class="remember-container">
-              <input type="checkbox" name="remember" id="remember" checked>
-              <label for="remember">Cihazı Hatırla (30 Gün)</label>
-            </div>
             <button type="submit">Giriş Yap</button>
           </form>
           ${req.query.error ? '<p class="error">Geçersiz şifre girdiniz!</p>' : ''}
@@ -171,6 +170,7 @@ app.get('/', (req, res) => {
     <body>
       <div class="dashboard">
         
+        <!-- SOL SÜTUN -->
         <div class="column">
           <div class="card" style="flex: 1; display: flex; flex-direction: column;">
             <h2>Melonya Canlı Sohbet</h2>
@@ -182,6 +182,7 @@ app.get('/', (req, res) => {
             </div>
           </div>
 
+          <!-- KISAYOL KARTI -->
           <div class="card">
             <h3>Klavye Kısayolları</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Panel açıkken klavyenizden belirlenen tuşa basarak hızlıca komut gönderebilirsiniz.</p>
@@ -214,6 +215,7 @@ app.get('/', (req, res) => {
           </div>
         </div>
 
+        <!-- SAĞ SÜTUN -->
         <div class="column">
           <div class="card">
             <h3>⏰ Periyodik Mesaj Döngüsü</h3>
@@ -231,6 +233,7 @@ app.get('/', (req, res) => {
             <button onclick="addInterval()" style="width:100%;">Mesajı Döngüye Ekle</button>
           </div>
 
+          <!-- OTO CEVAPLAR -->
           <div class="card">
             <h3>🤖 Otomatik Cevaplar</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Sohbette tetikleyici kelime geçtiğinde botun vereceği otomatik cevaplar.</p>
@@ -249,14 +252,19 @@ app.get('/', (req, res) => {
             <button onclick="addAutoReply()" style="width:100%;">Oto-Cevap Ekle</button>
           </div>
 
+          <!-- BİLDİRİM AYARLARI -->
           <div class="card">
             <h3>🔔 Telefona Bildirim (ntfy.sh)</h3>
             <label style="font-size:12px; color:#aaa;">Kanal Adı (ntfy.sh Topic):</label>
             <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic || ''}" placeholder="ntfy.sh kanal adınız (Örn: randombros_afk_notification)">
-            <label style="font-size:12px; color:#aaa;">Tetikleyici Kelimeler (virgülle ayırın):</label>
+            
+            <label style="font-size:12px; color:#aaa; display:block; margin-top:8px;">ntfy.sh Erişim Anahtarı (Kota Sorununu Çözer):</label>
+            <input type="text" id="ntfyToken" value="${settings.notifications.ntfyToken || ''}" placeholder="ntfy.sh sitesinden aldığınız tk_ ile başlayan token (İsteğe bağlı)">
+            
+            <label style="font-size:12px; color:#aaa; display:block; margin-top:8px;">Tetikleyici Kelimeler (virgülle ayırın):</label>
             <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers ? settings.notifications.triggers.join(', ') : ''}" placeholder="Hangi kelimeler geçince telefona bildirim gelsin? (Örn: acil, yardim, baksana)">
             
-            <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <div style="display: flex; gap: 8px; margin-top: 15px;">
               <button onclick="saveNotificationSettings()" style="flex: 1;">Ayarları Kaydet</button>
               <button onclick="sendTestNotification()" style="background: #2196f3; flex: 1;">Test Bildirimi Gönder</button>
             </div>
@@ -401,13 +409,14 @@ app.get('/', (req, res) => {
 
         // --- BİLDİRİM AYARLARI ---
         function saveNotificationSettings() {
-          const ntfyTopic = document.getElementById('ntfyTopic').value;
+          const ntfyTopic = document.getElementById('ntfyTopic').value.trim();
+          const ntfyToken = document.getElementById('ntfyToken').value.trim();
           const triggers = document.getElementById('ntfyTriggers').value.split(',').map(x => x.trim()).filter(x => x !== "");
 
           fetch('/settings/save-notifications', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ntfyTopic, triggers })
+            body: JSON.stringify({ ntfyTopic, ntfyToken, triggers })
           })
           .then(r => r.json())
           .then(data => {
@@ -522,8 +531,9 @@ app.post('/settings/delete-shortcut', (req, res) => {
 
 app.post('/settings/save-notifications', (req, res) => {
   if (!isAuthenticated(req)) return res.sendStatus(403);
-  const { ntfyTopic, triggers } = req.body;
+  const { ntfyTopic, ntfyToken, triggers } = req.body;
   settings.notifications.ntfyTopic = ntfyTopic;
+  settings.notifications.ntfyToken = ntfyToken;
   settings.notifications.triggers = triggers;
   saveSettings();
   res.json({ success: true });
@@ -546,7 +556,7 @@ app.listen(PORT, () => {
 });
 
 
-// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (GÜVENLİ PLAIN TEXT / CURL METODU) ---
+// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (HESAP / TOKEN DESTEKLİ) ---
 function sendPushNotification(title, text) {
   if (!settings.notifications.enabled) return;
   
@@ -556,17 +566,24 @@ function sendPushNotification(title, text) {
     return;
   }
 
-  // Başlık ve mesajı doğrudan düz metin haline getiriyoruz.
   const fullMessage = `📢 ${title}\n\n${text}`;
+
+  // HTTP Başlıklarını Ayarla
+  const headers = {
+    'Content-Type': 'text/plain; charset=utf-8'
+  };
+
+  // Eğer kullanıcı panelden bir Token girdiyse, isteğe Authorization başlığı ekle (Kota çözümüdür)
+  if (settings.notifications.ntfyToken && settings.notifications.ntfyToken.trim() !== "") {
+    headers['Authorization'] = `Bearer ${settings.notifications.ntfyToken.trim()}`;
+  }
 
   const options = {
     hostname: 'ntfy.sh',
     port: 443,
     path: `/${topic}`,
     method: 'POST',
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8'
-    }
+    headers: headers
   };
 
   const req = https.request(options, (res) => {
