@@ -3,7 +3,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const path = require('path');
-const https = require('https'); // Tüm Node.js sürümleriyle uyumlu dahili modül
+const https = require('https'); // Tüm Node.js sürümleriyle uyumlu yerleşik HTTPS modülü
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -261,7 +261,11 @@ app.get('/', (req, res) => {
             <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic}">
             <label style="font-size:12px; color:#aaa;">Tetikleyici Kelimeler (virgülle ayırın):</label>
             <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers.join(', ')}">
-            <button onclick="saveNotificationSettings()" style="width:100%; margin-top: 10px;">Bildirim Ayarlarını Kaydet</button>
+            
+            <div style="display: flex; gap: 8px; margin-top: 10px;">
+              <button onclick="saveNotificationSettings()" style="flex: 1;">Ayarları Kaydet</button>
+              <button onclick="sendTestNotification()" style="background: #2196f3; flex: 1;">Test Bildirimi Gönder</button>
+            </div>
           </div>
         </div>
 
@@ -416,6 +420,19 @@ app.get('/', (req, res) => {
             if(data.success) showToast("Bildirim ayarları kaydedildi!");
           });
         }
+
+        // TEST BİLDİRİMİ TETİKLEYİCİSİ
+        function sendTestNotification() {
+          fetch('/settings/test-notification', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+              if(data.success) {
+                showToast("Test bildirimi ntfy'ye gönderildi!");
+              } else {
+                showToast("Hata: " + data.message);
+              }
+            });
+        }
       </script>
     </body>
     </html>
@@ -518,6 +535,15 @@ app.post('/settings/save-notifications', (req, res) => {
   res.json({ success: true });
 });
 
+// TEST BİLDİRİMİ API'Sİ
+app.post('/settings/test-notification', (req, res) => {
+  if (!isAuthenticated(req)) return res.sendStatus(403);
+  sendPushNotification(
+    "Melonya Bot - Test",
+    "Melonya botundan test bildirimi başarıyla telefona ulaştı! 🎉"
+  );
+  res.json({ success: true });
+});
 
 // --- PORT DİNLEME ---
 const PORT = process.env.PORT || 3000;
@@ -526,58 +552,54 @@ app.listen(PORT, () => {
 });
 
 
-// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (BULLETPROOF BASE64 ENCODING) ---
+// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (YENİ VE HATASIZ JSON PAYLOAD SİSTEMİ) ---
 function sendPushNotification(title, text) {
   if (!settings.notifications.enabled) return;
   
-  // Kanal ismindeki boşlukları temizleyerek URL hatası almasını önlüyoruz.
   const topic = settings.notifications.ntfyTopic.trim().replace(/\s+/g, '_');
   if (!topic) {
     console.error('[Bildirim] Hata: ntfy kanal adı boş!');
     return;
   }
 
-  const url = `https://ntfy.sh/${topic}`;
+  // Gönderilecek JSON verisini hazırlıyoruz (Böylece Header ile uğraşmıyoruz, Türkçe karakterler de sorunsuz gidiyor)
+  const payload = JSON.stringify({
+    topic: topic,
+    title: title,
+    message: text,
+    priority: 4, // Yüksek öncelik
+    tags: ["warning", "bell"]
+  });
 
-  // Başlığı Base64 (RFC 2047) ile şifreleyerek Node.js'in Türkçe karakterlerden dolayı çökmesini engelliyoruz.
-  const encodedTitle = '=?utf-8?B?' + Buffer.from(title, 'utf-8').toString('base64') + '?=';
+  const options = {
+    hostname: 'ntfy.sh',
+    port: 443,
+    path: '/',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  };
 
-  try {
-    const parsedUrl = new URL(url);
-    const options = {
-      hostname: parsedUrl.hostname,
-      path: parsedUrl.pathname,
-      method: 'POST',
-      headers: {
-        'Title': encodedTitle,
-        'Priority': 'high',
-        'Tags': 'warning,bell',
-        'Content-Type': 'text/plain; charset=utf-8'
+  const req = https.request(options, (res) => {
+    let responseData = '';
+    res.on('data', (chunk) => { responseData += chunk; });
+    res.on('end', () => {
+      if (res.statusCode === 200) {
+        console.log(`[Bildirim] Telefona bildirim başarıyla yollandı! Kanal: ${topic}`);
+      } else {
+        console.error(`[Bildirim] ntfy.sh API Hatası (Kod: ${res.statusCode}):`, responseData);
       }
-    };
-
-    const req = https.request(options, (res) => {
-      let responseData = '';
-      res.on('data', (chunk) => { responseData += chunk; });
-      res.on('end', () => {
-        if (res.statusCode === 200) {
-          console.log(`[Bildirim] Telefona bildirim başarıyla yollandı! Kanal: ${topic}`);
-        } else {
-          console.error(`[Bildirim] ntfy.sh hatası (Kod: ${res.statusCode}):`, responseData);
-        }
-      });
     });
+  });
 
-    req.on('error', (err) => {
-      console.error('[Bildirim] HTTPS isteği başarısız oldu:', err.message);
-    });
+  req.on('error', (err) => {
+    console.error('[Bildirim] HTTPS isteği başarısız oldu (İnternet bağlantınızı kontrol edin):', err.message);
+  });
 
-    // Gövde (mesaj) kısmını güvenli bir şekilde buffer halinde gönderiyoruz.
-    req.write(Buffer.from(text, 'utf-8'));
-    req.end();
-  } catch (err) {
-    console.error('[Bildirim] URL veya istek hazırlama hatası:', err.message);
-  }
+  req.write(payload);
+  req.end();
 }
 
 
