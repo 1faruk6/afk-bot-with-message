@@ -11,7 +11,7 @@ app.use(cookieParser());
 
 // --- GİZLİ ŞİFRE VE BOT AYARLARI ---
 const botUsername = process.env.BOT_USERNAME || "RaNdOmBrOs_afk";
-const accountPassword = process.env.BOT_PASSWORD || "123456"; // Panel Giriş Şifresi aynı zamanda oyundaki şifrenizdir.
+const accountPassword = process.env.BOT_PASSWORD || "123456"; 
 
 const botOptions = {
   host: 'oyna.melonya.net',
@@ -22,6 +22,7 @@ const botOptions = {
 let bot;
 let townyTimer;
 let isConnected = false;
+let chatLog = []; // Sunucu sohbet geçmişini burada tutacağız (Maksimum 100 mesaj)
 
 // --- AYAR DOSYASI KONTROLÜ (PERSISTENCE) ---
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
@@ -30,10 +31,10 @@ let settings = {
     { text: "Aktif durumdayım! (Zaman Ayarlı)", waitMinutes: 3 },
     { text: "Melonya Towny AFK Botu devrede.", waitMinutes: 5 }
   ],
-  autoReplies: {
-    "selam": "Aleykum selam! Şu an AFK'yım, en kısa sürede döneceğim.",
-    "aktif misin": "Evet, otomatik AFK botu aktif durumda."
-  },
+  autoReplies: [
+    { trigger: "selam", reply: "Aleykum selam! Şu an AFK'yım, en kısa sürede döneceğim." },
+    { trigger: "aktif misin", reply: "Evet, otomatik AFK botu aktif durumda." }
+  ],
   notifications: {
     enabled: true,
     ntfyTopic: "melonya_afk_bot_ozel_kanal_" + Math.random().toString(36).substring(2, 8),
@@ -41,8 +42,7 @@ let settings = {
   },
   shortcuts: [
     { key: "1", label: "Towny'ye Git", command: "/towny" },
-    { key: "2", label: "Lobiye Dön", command: "/lobby" },
-    { key: "3", label: "Aktiflik Kontrol", command: "Buradayım!" }
+    { key: "2", label: "Lobiye Dön", command: "/lobby" }
   ]
 };
 
@@ -70,14 +70,14 @@ function startIntervalLoop() {
 
   function run() {
     if (!bot || !isConnected || settings.intervalMessages.length === 0) {
-      intervalTimeout = setTimeout(run, 10000); // Bağlı değilse 10 sn sonra tekrar kontrol et
+      intervalTimeout = setTimeout(run, 10000);
       return;
     }
 
     const current = settings.intervalMessages[intervalIndex];
     if (current) {
       bot.chat(current.text);
-      console.log(`[Zamanlayıcı] Gönderilen: "${current.text}". ${current.waitMinutes} dk beklenecek.`);
+      addChatToLog("SİSTEM", `[Zamanlayıcı] Gönderildi: "${current.text}"`);
       
       intervalIndex = (intervalIndex + 1) % settings.intervalMessages.length;
       intervalTimeout = setTimeout(run, current.waitMinutes * 60 * 1000);
@@ -89,14 +89,20 @@ function startIntervalLoop() {
   run();
 }
 
-// --- OTOMATİK GİRİŞ VE PANEL DOĞRULAMA ---
+// Sohbet kaydetme fonksiyonu
+function addChatToLog(sender, message) {
+  const timestamp = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  chatLog.push({ timestamp, sender, message });
+  if (chatLog.length > 100) chatLog.shift(); // Son 100 mesajı koru
+}
+
+// --- OTOMATİK GİRİŞ KONTROLÜ ---
 function isAuthenticated(req) {
   return req.cookies && req.cookies.panel_token === accountPassword;
 }
 
 // --- WEB PANEL ARAYÜZÜ ---
 app.get('/', (req, res) => {
-  // 1. Cihaz hatırlama kontrolü: Eğer cookie yoksa Giriş Sayfasını göster
   if (!isAuthenticated(req)) {
     return res.send(`
       <!DOCTYPE html>
@@ -134,7 +140,6 @@ app.get('/', (req, res) => {
     `);
   }
 
-  // 2. Başarılı Giriş Yapılmışsa Ana Paneli Göster
   const statusText = isConnected 
     ? "<span style='color:#4caf50;'>● Çevrimiçi (Oyunda)</span>" 
     : "<span style='color:#f44336;'>● Çevrimdışı (Bağlanıyor...)</span>";
@@ -147,84 +152,127 @@ app.get('/', (req, res) => {
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <style>
         body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; display: flex; justify-content: center; }
-        .dashboard { width: 100%; max-width: 800px; }
-        .card { background: #1e1e1e; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); margin-bottom: 20px; }
+        .dashboard { width: 100%; max-width: 1100px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 850px) { .dashboard { grid-template-columns: 1fr; } }
+        .column { display: flex; flex-direction: column; gap: 20px; }
+        .card { background: #1e1e1e; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
         h2, h3 { margin-top: 0; color: #4caf50; }
         .status { font-size: 18px; font-weight: bold; margin-bottom: 15px; }
-        .flex-container { display: flex; gap: 15px; flex-wrap: wrap; }
-        .flex-child { flex: 1; min-width: 280px; }
-        input[type="text"], input[type="number"], textarea { width: 100%; padding: 10px; margin: 6px 0; border: 1px solid #333; background: #2a2a2a; color: #fff; border-radius: 6px; box-sizing: border-box; }
+        
+        /* Sohbet Kutusu Tasarımı */
+        .chat-box { background: #151515; border: 1px solid #2a2a2a; border-radius: 8px; height: 350px; overflow-y: auto; padding: 15px; font-family: 'Consolas', monospace; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+        .chat-msg { border-bottom: 1px solid #1f1f1f; padding-bottom: 4px; line-height: 1.4; }
+        .chat-time { color: #666; margin-right: 5px; }
+        .chat-sender { color: #ff9800; font-weight: bold; margin-right: 5px; }
+        .chat-sender.system { color: #00bcd4; }
+        .chat-text { color: #e0e0e0; }
+
+        input[type="text"], input[type="number"] { width: 100%; padding: 10px; margin: 6px 0; border: 1px solid #333; background: #2a2a2a; color: #fff; border-radius: 6px; box-sizing: border-box; }
         button { padding: 10px 15px; background: #4caf50; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; transition: 0.2s; }
         button:hover { background: #45a049; }
-        .btn-danger { background: #f44336; }
+        .btn-danger { background: #f44336; padding: 5px 10px; font-size: 12px; }
         .btn-danger:hover { background: #da190b; }
-        .badge { background: #333; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-right: 5px; }
-        .toast { position: fixed; bottom: 20px; right: 20px; background: #4caf50; color: white; padding: 12px 24px; border-radius: 6px; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-        .shortcut-btn { background: #2196f3; margin-right: 8px; margin-bottom: 8px; }
+        .badge { background: #444; padding: 3px 8px; border-radius: 4px; font-size: 12px; margin-right: 5px; color: #ffeb3b; }
+        .toast { position: fixed; bottom: 20px; right: 20px; background: #4caf50; color: white; padding: 12px 24px; border-radius: 6px; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 999; }
+        .shortcut-btn { background: #2196f3; margin-right: 8px; margin-bottom: 8px; display: inline-flex; align-items: center; }
         .shortcut-btn:hover { background: #0b7dda; }
+        .list-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 8px 12px; border-radius: 6px; margin-bottom: 6px; font-size: 14px; }
       </style>
     </head>
     <body>
       <div class="dashboard">
-        <div class="card">
-          <h2>Melonya AFK Yönetim Paneli</h2>
-          <p>Aktif Bot: <strong>${botOptions.username}</strong></p>
-          <div class="status">Sistem Durumu: ${statusText}</div>
-          
-          <div style="margin-top: 15px;">
-            <input type="text" id="manualMessage" placeholder="Gönderilecek mesaj veya /komut..." style="width: 75%; display:inline-block;">
-            <button onclick="sendManualMessage()" style="width: 22%; display:inline-block;">Gönder</button>
+        
+        <div class="column">
+          <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+            <h2>Melonya Canlı Sohbet</h2>
+            <div class="status">Sistem: ${statusText}</div>
+            
+            <div id="chatBox" class="chat-box"></div>
+            
+            <div style="margin-top: 15px; display: flex; gap: 8px;">
+              <input type="text" id="manualMessage" placeholder="Sohbete mesaj veya /komut gönder..." style="margin:0; flex: 1;">
+              <button onclick="sendManualMessage()">Gönder</button>
+            </div>
           </div>
-        </div>
 
-        <div class="card">
-          <h3>Kullanıcı Kısayolları</h3>
-          <p style="font-size: 12px; color: #aaa;">Panel açıkken klavyenizden aşağıdaki tuşlara basarak hızlıca komut gönderebilirsiniz:</p>
-          <div id="shortcutsContainer">
-            ${settings.shortcuts.map(s => `
-              <button class="shortcut-btn" onclick="sendCustomMessage('${s.command}')">
-                <span class="badge">[${s.key.toUpperCase()}]</span> ${s.label} (${s.command})
-              </button>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="flex-container">
-          <div class="card flex-child">
-            <h3>⏰ Periyodik Mesaj Döngüsü</h3>
-            <div id="intervalList" style="margin-bottom: 15px;">
-              ${settings.intervalMessages.map((m, index) => `
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#2a2a2a; padding:8px; border-radius:6px; margin-bottom:5px;">
-                  <span>"${m.text}" <small style="color:#aaa;">(${m.waitMinutes} dk)</small></span>
-                  <button class="btn-danger" style="padding: 4px 8px; font-size:12px;" onclick="deleteInterval(${index})">Sil</button>
+          <div class="card">
+            <h3>Klavye Kısayolları</h3>
+            <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Panel açıkken klavyenizden belirlenen tuşa basarak hızlıca komut gönderebilirsiniz.</p>
+            <div id="shortcutsContainer" style="margin-bottom: 15px;">
+              ${settings.shortcuts.map(s => `
+                <button class="shortcut-btn" onclick="sendCustomMessage('${s.command}')">
+                  <span class="badge">${s.key.toUpperCase()}</span> ${s.label}
+                </button>
+              `).join('')}
+            </div>
+            <hr style="border-color: #2a2a2a; margin: 15px 0;">
+            <h4>Kısayol Düzenleme:</h4>
+            <div id="shortcutList" style="margin-bottom:15px;">
+              ${settings.shortcuts.map((s, index) => `
+                <div class="list-item">
+                  <span><b style="color:#2196f3;">[${s.key.toUpperCase()}]</b> ${s.label} <small style="color:#aaa;">(${s.command})</small></span>
+                  <button class="btn-danger" onclick="deleteShortcut(${index})">Sil</button>
                 </div>
               `).join('')}
             </div>
-            <h4>Yeni Zaman Ayarlı Mesaj Ekle:</h4>
-            <input type="text" id="newIntervalText" placeholder="Mesaj içeriği...">
-            <input type="number" id="newIntervalMinutes" placeholder="Bekleme Süresi (Dakika)" value="3">
-            <button onclick="addInterval()" style="width:100%;">Ekle ve Kaydet</button>
-          </div>
-
-          <div class="card flex-child">
-            <h3>⚙️ Akıllı Dinleme & Bildirim</h3>
             
-            <h4 style="margin-bottom:5px;">Telefona Bildirim (ntfy.sh)</h4>
-            <p style="font-size:11px; color:#aaa; margin:0 0 10px 0;">Telefona ntfy uygulamasını kurup aşağıdaki kanala abone olursanız, tetikleyici kelimeler sohbette geçtiğinde telefonunuza anında bildirim düşer.</p>
-            <label style="font-size:12px; color:#aaa;">Kanal Adı (ntfy.sh Topic):</label>
-            <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic}">
-            <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers.join(', ')}" placeholder="Tetikleyiciler (virgülle ayırın)">
-            
-            <h4 style="margin-bottom:5px; margin-top:15px;">Otomatik Cevaplar</h4>
-            <p style="font-size:11px; color:#aaa; margin:0 0 10px 0;">Sohbette anahtar kelime algılanınca botun vereceği otomatik cevapları JSON formatında düzenleyin:</p>
-            <textarea id="autoRepliesText" rows="4" style="font-family:monospace; font-size:12px;">${JSON.stringify(settings.autoReplies, null, 2)}</textarea>
-            
-            <button onclick="saveAdvancedSettings()" style="width:100%; margin-top:10px;">Gelişmiş Ayarları Kaydet</button>
+            <div style="display: grid; grid-template-columns: 1fr 2fr 2fr; gap: 5px;">
+              <input type="text" id="newShortKey" placeholder="Tuş (Örn: g)" maxlength="1">
+              <input type="text" id="newShortLabel" placeholder="Kısayol Adı">
+              <input type="text" id="newShortCmd" placeholder="Gönderilecek Komut">
+            </div>
+            <button onclick="addShortcut()" style="width: 100%; margin-top: 8px;">Yeni Kısayol Ekle</button>
           </div>
         </div>
+
+        <div class="column">
+          <div class="card">
+            <h3>⏰ Periyodik Mesaj Döngüsü</h3>
+            <div id="intervalList" style="margin-bottom: 15px;">
+              ${settings.intervalMessages.map((m, index) => `
+                <div class="list-item">
+                  <span>"${m.text}" <small style="color:#aaa;">(${m.waitMinutes} dk)</small></span>
+                  <button class="btn-danger" onclick="deleteInterval(${index})">Sil</button>
+                </div>
+              `).join('')}
+            </div>
+            <h4>Yeni Zaman Ayarlı Mesaj:</h4>
+            <input type="text" id="newIntervalText" placeholder="Mesaj içeriği...">
+            <input type="number" id="newIntervalMinutes" placeholder="Bekleme Süresi (Dakika)" value="3">
+            <button onclick="addInterval()" style="width:100%;">Mesajı Döngüye Ekle</button>
+          </div>
+
+          <div class="card">
+            <h3>🤖 Otomatik Cevaplar</h3>
+            <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Sohbette tetikleyici kelime geçtiğinde botun vereceği otomatik cevaplar.</p>
+            <div id="autoReplyList" style="margin-bottom: 15px;">
+              ${settings.autoReplies.map((r, index) => `
+                <div class="list-item">
+                  <span><b style="color:#ff9800;">"${r.trigger}"</b> ➜ "${r.reply}"</span>
+                  <button class="btn-danger" onclick="deleteAutoReply(${index})">Sil</button>
+                </div>
+              `).join('')}
+            </div>
+            <hr style="border-color: #2a2a2a; margin: 15px 0;">
+            <h4>Yeni Otomatik Cevap Ekle:</h4>
+            <input type="text" id="newTrigger" placeholder="Tetikleyici Kelime (Örn: selam)">
+            <input type="text" id="newReply" placeholder="Botun Vereceği Cevap">
+            <button onclick="addAutoReply()" style="width:100%;">Oto-Cevap Ekle</button>
+          </div>
+
+          <div class="card">
+            <h3>🔔 Telefona Bildirim (ntfy.sh)</h3>
+            <label style="font-size:12px; color:#aaa;">Kanal Adı (ntfy.sh Topic):</label>
+            <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic}">
+            <label style="font-size:12px; color:#aaa;">Tetikleyici Kelimeler (virgülle ayırın):</label>
+            <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers.join(', ')}">
+            <button onclick="saveNotificationSettings()" style="width:100%; margin-top: 10px;">Bildirim Ayarlarını Kaydet</button>
+          </div>
+        </div>
+
       </div>
 
-      <div id="toast" class="toast">Mesaj başarıyla gönderildi!</div>
+      <div id="toast" class="toast">İşlem başarıyla tamamlandı!</div>
 
       <script>
         function showToast(msg) {
@@ -233,6 +281,31 @@ app.get('/', (req, res) => {
           t.style.display = 'block';
           setTimeout(() => { t.style.display = 'none'; }, 2500);
         }
+
+        // --- ANLIK CANLI SOHBET SİSTEMİ (API POLLING) ---
+        let lastReceivedIndex = -1;
+        function updateChat() {
+          fetch('/api/chat')
+            .then(res => res.json())
+            .then(logs => {
+              const chatBox = document.getElementById('chatBox');
+              chatBox.innerHTML = ''; // Temizle ve yeniden yazdır
+              logs.forEach(log => {
+                const isSystem = log.sender === 'SİSTEM';
+                const div = document.createElement('div');
+                div.className = 'chat-msg';
+                div.innerHTML = \`
+                  <span class="chat-time">[\${log.timestamp}]</span>
+                  <span class="chat-sender \${isSystem ? 'system' : ''}">\${log.sender}:</span>
+                  <span class="chat-text">\${log.message}</span>
+                \`;
+                chatBox.appendChild(div);
+              });
+              // Eğer yeni sohbet gelmişse en aşağı kaydır
+              chatBox.scrollTop = chatBox.scrollHeight;
+            });
+        }
+        setInterval(updateChat, 1000); // Her saniye yeni mesaj var mı diye kontrol et
 
         function sendManualMessage() {
           const msgInput = document.getElementById('manualMessage');
@@ -250,19 +323,18 @@ app.get('/', (req, res) => {
           .then(r => r.json())
           .then(data => {
             if(data.success) {
-              showToast("Mesaj gönderildi: " + msg);
+              showToast("Mesaj gönderildi!");
+              updateChat();
             } else {
               showToast("Hata: " + data.message);
             }
           });
         }
 
-        // Klavye Kısayolları Yakalama
+        // Global Klavye Kısayolları Dinleme
         document.addEventListener('keydown', function(e) {
-          // Eğer kullanıcı yazı kutularına bir şeyler yazıyorsa kısayol çalışmasın
-          if(document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-          
-          const shortcuts = ${JSON.stringify(settings.shortcuts)};
+          if(document.activeElement.tagName === 'INPUT') return;
+          const shortcuts = \${JSON.stringify(settings.shortcuts)};
           const pressedKey = e.key.toLowerCase();
           const match = shortcuts.find(s => s.key.toLowerCase() === pressedKey);
           
@@ -272,7 +344,7 @@ app.get('/', (req, res) => {
           }
         });
 
-        // Zaman Ayarlı Mesaj İşlemleri
+        // --- ZAMANLAYICI AYARLARI ---
         function addInterval() {
           const text = document.getElementById('newIntervalText').value;
           const waitMinutes = parseFloat(document.getElementById('newIntervalMinutes').value);
@@ -282,8 +354,7 @@ app.get('/', (req, res) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, waitMinutes })
-          })
-          .then(() => location.reload());
+          }).then(() => location.reload());
         }
 
         function deleteInterval(index) {
@@ -291,31 +362,65 @@ app.get('/', (req, res) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ index })
-          })
-          .then(() => location.reload());
+          }).then(() => location.reload());
         }
 
-        // Gelişmiş Ayarları Kaydetme
-        function saveAdvancedSettings() {
-          const ntfyTopic = document.getElementById('ntfyTopic').value;
-          const triggers = document.getElementById('ntfyTriggers').value.split(',').map(x => x.trim());
-          let autoReplies;
-          try {
-            autoReplies = JSON.parse(document.getElementById('autoRepliesText').value);
-          } catch(e) {
-            return alert("Otomatik Cevaplar geçerli bir JSON formatında olmalıdır!");
-          }
+        // --- OTO CEVAP AYARLARI ---
+        function addAutoReply() {
+          const trigger = document.getElementById('newTrigger').value.trim();
+          const reply = document.getElementById('newReply').value.trim();
+          if(!trigger || !reply) return alert("Lütfen tetikleyici ve cevap alanlarını doldurun.");
 
-          fetch('/settings/save-advanced', {
+          fetch('/settings/add-autoreply', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ntfyTopic, triggers, autoReplies })
+            body: JSON.stringify({ trigger, reply })
+          }).then(() => location.reload());
+        }
+
+        function deleteAutoReply(index) {
+          fetch('/settings/delete-autoreply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index })
+          }).then(() => location.reload());
+        }
+
+        // --- KISAYOL AYARLARI ---
+        function addShortcut() {
+          const key = document.getElementById('newShortKey').value.trim().toLowerCase();
+          const label = document.getElementById('newShortLabel').value.trim();
+          const command = document.getElementById('newShortCmd').value.trim();
+          if(!key || !label || !command) return alert("Lütfen tüm kısayol alanlarını doldurun.");
+
+          fetch('/settings/add-shortcut', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, label, command })
+          }).then(() => location.reload());
+        }
+
+        function deleteShortcut(index) {
+          fetch('/settings/delete-shortcut', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index })
+          }).then(() => location.reload());
+        }
+
+        // --- BİLDİRİM AYARLARI ---
+        function saveNotificationSettings() {
+          const ntfyTopic = document.getElementById('ntfyTopic').value;
+          const triggers = document.getElementById('ntfyTriggers').value.split(',').map(x => x.trim());
+
+          fetch('/settings/save-notifications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ntfyTopic, triggers })
           })
           .then(r => r.json())
           .then(data => {
-            if(data.success) {
-              showToast("Ayarlar başarıyla kaydedildi!");
-            }
+            if(data.success) showToast("Bildirim ayarları kaydedildi!");
           });
         }
       </script>
@@ -324,15 +429,18 @@ app.get('/', (req, res) => {
   `);
 });
 
+// --- API: SOHBET GEÇMİŞİ VER ---
+app.get('/api/chat', (req, res) => {
+  res.json(chatLog);
+});
+
 // --- GİRİŞ POST ROUTE ---
 app.post('/login', (req, res) => {
   const { pin, remember } = req.body;
   if (pin === accountPassword) {
     if (remember === 'on') {
-      // 30 günlük çerez tanımla
       res.cookie('panel_token', pin, { maxAge: 30 * 24 * 60 * 60 * 1000, httpOnly: true });
     } else {
-      // Tarayıcı kapatılınca silinen çerez
       res.cookie('panel_token', pin, { httpOnly: true });
     }
     return res.redirect('/');
@@ -350,7 +458,7 @@ app.post('/send-message-ajax', (req, res) => {
   }
 
   bot.chat(message);
-  console.log(`[Web Panel] Gönderilen Komut: ${message}`);
+  addChatToLog("SEN (Panel)", message);
   res.json({ success: true });
 });
 
@@ -360,7 +468,7 @@ app.post('/settings/add-interval', (req, res) => {
   const { text, waitMinutes } = req.body;
   settings.intervalMessages.push({ text, waitMinutes });
   saveSettings();
-  startIntervalLoop(); // Döngüyü yeni ayarlara göre tazele
+  startIntervalLoop();
   res.json({ success: true });
 });
 
@@ -370,19 +478,55 @@ app.post('/settings/delete-interval', (req, res) => {
   if (index >= 0 && index < settings.intervalMessages.length) {
     settings.intervalMessages.splice(index, 1);
     saveSettings();
-    startIntervalLoop(); // Döngüyü tazele
+    startIntervalLoop();
   }
   res.json({ success: true });
 });
 
-app.post('/settings/save-advanced', (req, res) => {
+// OTO-CEVAP EKLE / SİL API
+app.post('/settings/add-autoreply', (req, res) => {
   if (!isAuthenticated(req)) return res.sendStatus(403);
-  const { ntfyTopic, triggers, autoReplies } = req.body;
-  
+  const { trigger, reply } = req.body;
+  settings.autoReplies.push({ trigger, reply });
+  saveSettings();
+  res.json({ success: true });
+});
+
+app.post('/settings/delete-autoreply', (req, res) => {
+  if (!isAuthenticated(req)) return res.sendStatus(403);
+  const { index } = req.body;
+  if (index >= 0 && index < settings.autoReplies.length) {
+    settings.autoReplies.splice(index, 1);
+    saveSettings();
+  }
+  res.json({ success: true });
+});
+
+// KISAYOL EKLE / SİL API
+app.post('/settings/add-shortcut', (req, res) => {
+  if (!isAuthenticated(req)) return res.sendStatus(403);
+  const { key, label, command } = req.body;
+  settings.shortcuts.push({ key, label, command });
+  saveSettings();
+  res.json({ success: true });
+});
+
+app.post('/settings/delete-shortcut', (req, res) => {
+  if (!isAuthenticated(req)) return res.sendStatus(403);
+  const { index } = req.body;
+  if (index >= 0 && index < settings.shortcuts.length) {
+    settings.shortcuts.splice(index, 1);
+    saveSettings();
+  }
+  res.json({ success: true });
+});
+
+// BİLDİRİM AYARLARI API
+app.post('/settings/save-notifications', (req, res) => {
+  if (!isAuthenticated(req)) return res.sendStatus(403);
+  const { ntfyTopic, triggers } = req.body;
   settings.notifications.ntfyTopic = ntfyTopic;
   settings.notifications.triggers = triggers;
-  settings.autoReplies = autoReplies;
-  
   saveSettings();
   res.json({ success: true });
 });
@@ -426,18 +570,19 @@ function createBot() {
 
   bot.once('spawn', () => {
     isConnected = true;
+    addChatToLog("SİSTEM", "Bot oyuna giriş yaptı!");
     console.log('Bot ilk lobiye adım attı. 4 saniye sonra şifre girilecek...');
     
     setTimeout(() => {
       if (isConnected) {
         bot.chat(`/giriş ${accountPassword}`);
-        console.log('Giriş komutu gönderildi. Ana lobinin yüklenmesi bekleniyor...');
+        addChatToLog("SİSTEM", "Şifre girildi.");
         
         setTimeout(() => {
           if (isConnected) {
             bot.chat('/towny');
-            console.log('Bekleme süresi bitti. Ana lobiden geçiş için /towny komutu gönderildi.');
-            startIntervalLoop(); // Lobi geçişinden sonra periyodik mesajları başlat
+            addChatToLog("SİSTEM", "/towny komutu gönderildi.");
+            startIntervalLoop();
           }
         }, 12000);
       }
@@ -447,50 +592,67 @@ function createBot() {
     townyTimer = setInterval(() => {
       if (bot && isConnected) {
         bot.chat('/towny');
-        console.log('Zamanlayıcı: AFK kalmamak için /towny tekrarlandı.');
+        addChatToLog("SİSTEM", "AFK koruma amacıyla /towny yenilendi.");
       }
     }, 30 * 60 * 1000);
   });
 
-  // --- SOHBETİ VE TETİKLEYİCİLERİ DİNLEME ---
-  bot.on('chat', (username, message) => {
-    if (username === bot.username) return; // Botun kendi attığı mesajları yok say
-
-    const cleanMessage = message.trim();
-    const cleanMessageLower = cleanMessage.toLowerCase();
-    console.log(`[Sunucu Sohbeti] ${username}: ${cleanMessage}`);
-
-    // A. Otomatik Cevap Kontrolü
-    for (const [trigger, reply] of Object.entries(settings.autoReplies)) {
-      if (cleanMessageLower.includes(trigger.toLowerCase())) {
-        console.log(`[Oto-Cevap] Tetikleyici algılandı: "${trigger}". Yanıt gönderiliyor...`);
-        setTimeout(() => {
-          if (bot && isConnected) {
-            bot.chat(reply);
-          }
-        }, 1500); // İnsan taklidi için ufak bir gecikme süresi
-        break;
+  // Gelen tüm Minecraft Sohbet Mesajlarını Dinleme (Canlı sohbet için)
+  bot.on('message', (jsonMsg) => {
+    const cleanMessage = jsonMsg.toString().trim();
+    if (cleanMessage.length > 0) {
+      // Mesajı sunucu konsoluna ve web paneline kaydet
+      console.log(`[Sohbet]: ${cleanMessage}`);
+      
+      // Sohbet formatı ayırma (Örn: "Ahmet: selam" -> sender: Ahmet, msg: selam)
+      let sender = "SUNUCU";
+      let text = cleanMessage;
+      
+      const chatMatch = cleanMessage.match(/^([a-zA-Z0-9_]{3,16}):\s(.*)$/);
+      if (chatMatch) {
+        sender = chatMatch[1];
+        text = chatMatch[2];
       }
-    }
 
-    // B. Telefona Bildirim Gönderme Kontrolü
-    if (settings.notifications.enabled) {
-      const hasTrigger = settings.notifications.triggers.some(trigger => 
-        cleanMessageLower.includes(trigger.toLowerCase())
-      );
+      // Botun kendi yazılarını çift eklememek için kontrol et
+      if (sender === bot.username) return;
 
-      if (hasTrigger) {
-        sendPushNotification(
-          "Melonya AFK - Önemli Kelime!",
-          `Oyuncu: ${username}\nMesaj: ${cleanMessage}`
+      addChatToLog(sender, text);
+
+      // --- A. OTOMATİK CEVAP KONTROLÜ ---
+      const cleanMessageLower = text.toLowerCase();
+      for (const rule of settings.autoReplies) {
+        if (cleanMessageLower.includes(rule.trigger.toLowerCase())) {
+          addChatToLog("SİSTEM", `"${rule.trigger}" tetiklendi. Oto-cevap gönderiliyor.`);
+          setTimeout(() => {
+            if (bot && isConnected) {
+              bot.chat(rule.reply);
+              addChatToLog("SEN (Oto)", rule.reply);
+            }
+          }, 1500);
+          break;
+        }
+      }
+
+      // --- B. TELEFONA BİLDİRİM KONTROLÜ ---
+      if (settings.notifications.enabled) {
+        const hasTrigger = settings.notifications.triggers.some(trigger => 
+          cleanMessageLower.includes(trigger.toLowerCase())
         );
+
+        if (hasTrigger) {
+          sendPushNotification(
+            "Melonya AFK - Önemli Kelime!",
+            `Oyuncu: ${sender}\nMesaj: ${text}`
+          );
+        }
       }
     }
   });
 
   bot.on('end', () => {
     isConnected = false;
-    console.log('Botun sunucuyla bağlantısı kesildi. 15 saniye sonra tekrar denenecek...');
+    addChatToLog("SİSTEM", "Bağlantı kesildi! 15 saniye sonra tekrar denenecek.");
     if (townyTimer) clearInterval(townyTimer);
     if (intervalTimeout) clearTimeout(intervalTimeout);
     setTimeout(createBot, 15000);
@@ -498,7 +660,7 @@ function createBot() {
 
   bot.on('error', (err) => {
     isConnected = false;
-    console.log('Mineflayer Hatası: ', err.message);
+    addChatToLog("SİSTEM", `HATA: ${err.message}`);
   });
 }
 
