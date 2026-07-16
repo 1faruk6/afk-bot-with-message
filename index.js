@@ -3,7 +3,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const path = require('path');
-const https = require('https'); // Tüm Node.js sürümlerinde bildirim için yerleşik modül
+const https = require('https'); // Tüm Node.js sürümleriyle uyumlu dahili modül
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -12,7 +12,7 @@ app.use(cookieParser());
 
 // --- GİZLİ ŞİFRE VE BOT AYARLARI ---
 const botUsername = process.env.BOT_USERNAME || "RaNdOmBrOs_afk";
-const accountPassword = process.env.BOT_PASSWORD || "123456"; // Panel Giriş Şifresi aynı zamanda oyundaki şifrenizdir.
+const accountPassword = process.env.BOT_PASSWORD || "123456"; // Panel ve oyun şifresi
 
 const botOptions = {
   host: 'oyna.melonya.net',
@@ -23,7 +23,7 @@ const botOptions = {
 let bot;
 let townyTimer;
 let isConnected = false;
-let chatLog = []; // Sunucu sohbet geçmişi (Maksimum 100 mesaj)
+let chatLog = []; // Maksimum 100 mesajlık geçmiş
 
 // --- AYAR DOSYASI KONTROLÜ (PERSISTENCE) ---
 const SETTINGS_PATH = path.join(__dirname, 'settings.json');
@@ -47,7 +47,6 @@ let settings = {
   ]
 };
 
-// Kayıtlı ayarları yükle
 if (fs.existsSync(SETTINGS_PATH)) {
   try {
     settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
@@ -62,7 +61,7 @@ function saveSettings() {
   fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
 }
 
-// --- PERİYODİK MESAJ GÖNDERME DÖNGÜSÜ ---
+// --- PERİYODİK MESAJ DÖNGÜSÜ ---
 let intervalIndex = 0;
 let intervalTimeout = null;
 
@@ -90,14 +89,12 @@ function startIntervalLoop() {
   run();
 }
 
-// Sohbet kaydetme fonksiyonu
 function addChatToLog(sender, message) {
   const timestamp = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   chatLog.push({ timestamp, sender, message });
-  if (chatLog.length > 100) chatLog.shift(); // Son 100 mesajı koru
+  if (chatLog.length > 100) chatLog.shift();
 }
 
-// --- OTOMATİK GİRİŞ KONTROLÜ ---
 function isAuthenticated(req) {
   return req.cookies && req.cookies.panel_token === accountPassword;
 }
@@ -145,7 +142,6 @@ app.get('/', (req, res) => {
     ? "<span style='color:#4caf50;'>● Çevrimiçi (Oyunda)</span>" 
     : "<span style='color:#f44336;'>● Çevrimdışı (Bağlanıyor...)</span>";
 
-  // HTML Şablonunu server tarafında derleyip gönderiyoruz. Kaçış hataları tamamen giderildi!
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -161,7 +157,6 @@ app.get('/', (req, res) => {
         h2, h3 { margin-top: 0; color: #4caf50; }
         .status { font-size: 18px; font-weight: bold; margin-bottom: 15px; }
         
-        /* Sohbet Kutusu */
         .chat-box { background: #151515; border: 1px solid #2a2a2a; border-radius: 8px; height: 350px; overflow-y: auto; padding: 15px; font-family: 'Consolas', monospace; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
         .chat-msg { border-bottom: 1px solid #1f1f1f; padding-bottom: 4px; line-height: 1.4; }
         .chat-time { color: #666; margin-right: 5px; }
@@ -184,22 +179,17 @@ app.get('/', (req, res) => {
     <body>
       <div class="dashboard">
         
-        <!-- SOL SÜTUN: CANLI OYUN VE SOHBET EKRANI -->
         <div class="column">
           <div class="card" style="flex: 1; display: flex; flex-direction: column;">
             <h2>Melonya Canlı Sohbet</h2>
             <div class="status">Sistem: ${statusText}</div>
-            
-            <!-- Sohbet Alanı -->
             <div id="chatBox" class="chat-box"></div>
-            
             <div style="margin-top: 15px; display: flex; gap: 8px;">
               <input type="text" id="manualMessage" placeholder="Sohbete mesaj veya /komut gönder..." style="margin:0; flex: 1;">
               <button onclick="sendManualMessage()">Gönder</button>
             </div>
           </div>
 
-          <!-- KISAYOL TUŞLARI KARTI -->
           <div class="card">
             <h3>Klavye Kısayolları</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Panel açıkken klavyenizden belirlenen tuşa basarak hızlıca komut gönderebilirsiniz.</p>
@@ -230,9 +220,7 @@ app.get('/', (req, res) => {
           </div>
         </div>
 
-        <!-- SAĞ SÜTUN: AYARLAR VE DÖNGÜLER -->
         <div class="column">
-          <!-- ZAMAN AYARLI MESAJLAR -->
           <div class="card">
             <h3>⏰ Periyodik Mesaj Döngüsü</h3>
             <div id="intervalList" style="margin-bottom: 15px;">
@@ -249,7 +237,6 @@ app.get('/', (req, res) => {
             <button onclick="addInterval()" style="width:100%;">Mesajı Döngüye Ekle</button>
           </div>
 
-          <!-- OTO CEVAP SİSTEMİ -->
           <div class="card">
             <h3>🤖 Otomatik Cevaplar</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">Sohbette tetikleyici kelime geçtiğinde botun vereceği otomatik cevaplar.</p>
@@ -268,7 +255,6 @@ app.get('/', (req, res) => {
             <button onclick="addAutoReply()" style="width:100%;">Oto-Cevap Ekle</button>
           </div>
 
-          <!-- BİLDİRİM AYARLARI -->
           <div class="card">
             <h3>🔔 Telefona Bildirim (ntfy.sh)</h3>
             <label style="font-size:12px; color:#aaa;">Kanal Adı (ntfy.sh Topic):</label>
@@ -312,7 +298,7 @@ app.get('/', (req, res) => {
               chatBox.scrollTop = chatBox.scrollHeight;
             });
         }
-        setInterval(updateChat, 1000); // Saniyede bir sohbeti yeniler
+        setInterval(updateChat, 1000);
 
         function sendManualMessage() {
           const msgInput = document.getElementById('manualMessage');
@@ -338,7 +324,7 @@ app.get('/', (req, res) => {
           });
         }
 
-        // Global Klavye Kısayolları Dinleme (Statik JSON injection ile tarayıcı çökmesi giderildi!)
+        // Global Klavye Kısayolları Dinleme
         document.addEventListener('keydown', function(e) {
           if(document.activeElement.tagName === 'INPUT') return;
           const shortcuts = ${JSON.stringify(settings.shortcuts)};
@@ -436,12 +422,10 @@ app.get('/', (req, res) => {
   `);
 });
 
-// --- API: SOHBET GEÇMİŞİ VER ---
 app.get('/api/chat', (req, res) => {
   res.json(chatLog);
 });
 
-// --- GİRİŞ POST ROUTE ---
 app.post('/login', (req, res) => {
   const { pin, remember } = req.body;
   if (pin === accountPassword) {
@@ -455,7 +439,6 @@ app.post('/login', (req, res) => {
   res.redirect('/?error=1');
 });
 
-// --- GÜVENLİ AJAX MESAJ GÖNDERME ---
 app.post('/send-message-ajax', (req, res) => {
   if (!isAuthenticated(req)) return res.status(403).json({ success: false, message: "Yetkisiz erişim" });
   
@@ -543,41 +526,58 @@ app.listen(PORT, () => {
 });
 
 
-// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (YERLEŞİK HTTPS) ---
+// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (BULLETPROOF BASE64 ENCODING) ---
 function sendPushNotification(title, text) {
   if (!settings.notifications.enabled) return;
-  const topic = settings.notifications.ntfyTopic;
+  
+  // Kanal ismindeki boşlukları temizleyerek URL hatası almasını önlüyoruz.
+  const topic = settings.notifications.ntfyTopic.trim().replace(/\s+/g, '_');
+  if (!topic) {
+    console.error('[Bildirim] Hata: ntfy kanal adı boş!');
+    return;
+  }
+
   const url = `https://ntfy.sh/${topic}`;
 
-  // Başlıkta Türkçe karakterleri temizleyerek HTTP Header hatası vermesini engelliyoruz.
-  const safeTitle = title
-    .replace(/ı/g, 'i').replace(/İ/g, 'I')
-    .replace(/ş/g, 's').replace(/Ş/g, 'S')
-    .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
-    .replace(/ü/g, 'u').replace(/Ü/g, 'U')
-    .replace(/ö/g, 'o').replace(/Ö/g, 'O')
-    .replace(/ç/g, 'c').replace(/Ç/g, 'C');
+  // Başlığı Base64 (RFC 2047) ile şifreleyerek Node.js'in Türkçe karakterlerden dolayı çökmesini engelliyoruz.
+  const encodedTitle = '=?utf-8?B?' + Buffer.from(title, 'utf-8').toString('base64') + '?=';
 
-  const options = {
-    method: 'POST',
-    headers: {
-      'Title': safeTitle,
-      'Priority': 'high',
-      'Tags': 'warning,bell',
-      'Content-Type': 'text/plain; charset=utf-8'
-    }
-  };
+  try {
+    const parsedUrl = new URL(url);
+    const options = {
+      hostname: parsedUrl.hostname,
+      path: parsedUrl.pathname,
+      method: 'POST',
+      headers: {
+        'Title': encodedTitle,
+        'Priority': 'high',
+        'Tags': 'warning,bell',
+        'Content-Type': 'text/plain; charset=utf-8'
+      }
+    };
 
-  const req = https.request(url, options, (res) => {
-    res.on('data', () => {}); // Hafıza birikmesin diye boşalt
-  });
+    const req = https.request(options, (res) => {
+      let responseData = '';
+      res.on('data', (chunk) => { responseData += chunk; });
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          console.log(`[Bildirim] Telefona bildirim başarıyla yollandı! Kanal: ${topic}`);
+        } else {
+          console.error(`[Bildirim] ntfy.sh hatası (Kod: ${res.statusCode}):`, responseData);
+        }
+      });
+    });
 
-  req.on('error', (err) => {
-    console.error('[Bildirim] Hata:', err.message);
-  });
+    req.on('error', (err) => {
+      console.error('[Bildirim] HTTPS isteği başarısız oldu:', err.message);
+    });
 
-  req.write(Buffer.from(text, 'utf-8'));
-  req.end();
+    // Gövde (mesaj) kısmını güvenli bir şekilde buffer halinde gönderiyoruz.
+    req.write(Buffer.from(text, 'utf-8'));
+    req.end();
+  } catch (err) {
+    console.error('[Bildirim] URL veya istek hazırlama hatası:', err.message);
+  }
 }
 
 
@@ -616,7 +616,6 @@ function createBot() {
     }, 30 * 60 * 1000);
   });
 
-  // Gelen tüm sohbetleri dinle
   bot.on('message', (jsonMsg) => {
     if (!jsonMsg) return;
     const cleanMessage = jsonMsg.toString().trim();
@@ -626,8 +625,6 @@ function createBot() {
       let sender = "SUNUCU";
       let text = cleanMessage;
 
-      // Melonya kasaba/unvan tagleri içeren sohbetleri gelişmiş ve hatasız ayrıştırma:
-      // "[VIP] Ahmet » Selam" veya "Mehmet: merhaba" gibi yapıları yakalar.
       if (cleanMessage.includes(' » ')) {
         const parts = cleanMessage.split(' » ');
         text = parts.slice(1).join(' » ');
@@ -642,7 +639,6 @@ function createBot() {
         sender = words[words.length - 1].replace(/[\[\]]/g, '');
       }
 
-      // Botun kendi gönderdiği mesajları listeye tekrar eklememesi için engel
       if (sender === bot.username) return;
 
       addChatToLog(sender, text);
@@ -670,7 +666,7 @@ function createBot() {
 
         if (hasTrigger) {
           sendPushNotification(
-            "Melonya AFK - Onemli Kelime!",
+            "Melonya AFK - Önemli Kelime!",
             `Oyuncu: ${sender}\nMesaj: ${text}`
           );
         }
