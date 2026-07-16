@@ -3,7 +3,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const path = require('path');
-const https = require('https'); // Tüm Node.js sürümleriyle uyumlu yerleşik HTTPS modülü
+const https = require('https'); // Yerleşik HTTPS modülü
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -12,7 +12,7 @@ app.use(cookieParser());
 
 // --- GİZLİ ŞİFRE VE BOT AYARLARI ---
 const botUsername = process.env.BOT_USERNAME || "RaNdOmBrOs_afk";
-const accountPassword = process.env.BOT_PASSWORD || "123456"; // Panel ve oyun şifresi
+const accountPassword = process.env.BOT_PASSWORD || "123456"; // Panel ve oyun giriş şifresi
 
 const botOptions = {
   host: 'oyna.melonya.net',
@@ -25,26 +25,40 @@ let townyTimer;
 let isConnected = false;
 let chatLog = []; // Maksimum 100 mesajlık geçmiş
 
-// --- AYAR DOSYASI KONTROLÜ ---
-const SETTINGS_PATH = path.join(__dirname, 'settings.json');
+// --- AYAR DOSYASI KONTROLÜ (RAILWAY KALICI DISK DESTEKLİ VE BOŞ BAŞLANGIÇ) ---
+const STORAGE_DIR = path.join(__dirname, 'storage');
+
+// Eğer klasör yoksa (ilk kurulumda veya lokalde) otomatik oluşturur
+if (!fs.existsSync(STORAGE_DIR)) {
+  fs.mkdirSync(STORAGE_DIR, { recursive: true });
+}
+
+const SETTINGS_PATH = path.join(STORAGE_DIR, 'settings.json');
+
 let settings = {
-  intervalMessages: [],
-  autoReplies: [],
+  intervalMessages: [], // Tamamen temiz başlangıç
+  autoReplies: [],      // Tamamen temiz başlangıç
   notifications: {
     enabled: true,
-    ntfyTopic: "randombros_afk_notification",
-    ntfyToken: "", // Yeni eklenen kota aşımı engelleyici Token alanı
-    triggers: []
+    ntfyTopic: "randombros_afk_notification", // İstediğin sabit kanal adı
+    ntfyToken: "", // Railway kota engeli aşımı için Token alanı
+    triggers: []   // Boş başlangıç
   },
-  shortcuts: []
+  shortcuts: []         // Tamamen temiz başlangıç
 };
 
 if (fs.existsSync(SETTINGS_PATH)) {
   try {
     settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-    // Eski ayarlarda ntfyToken yoksa nesneye dahil et
+    // Geriye dönük uyumluluk kontrolleri
+    if (!settings.notifications) {
+      settings.notifications = { enabled: true, ntfyTopic: "randombros_afk_notification", ntfyToken: "", triggers: [] };
+    }
     if (settings.notifications && !settings.notifications.hasOwnProperty('ntfyToken')) {
       settings.notifications.ntfyToken = "";
+    }
+    if (!settings.notifications.ntfyTopic) {
+      settings.notifications.ntfyTopic = "randombros_afk_notification";
     }
   } catch (e) {
     console.log("Ayarlar dosyası okunamadı, varsayılanlar yükleniyor.");
@@ -177,7 +191,7 @@ app.get('/', (req, res) => {
             <div class="status">Sistem: ${statusText}</div>
             <div id="chatBox" class="chat-box"></div>
             <div style="margin-top: 15px; display: flex; gap: 8px;">
-              <input type="text" id="manualMessage" placeholder="Oyuna mesaj veya komut gönderin... (Örn: /towny spawn)" style="margin:0; flex: 1;">
+              <input type="text" id="manualMessage" placeholder="Oyuna hızlı mesaj veya komut gönderin... (Örn: /towny spawn)" style="margin:0; flex: 1;">
               <button onclick="sendManualMessage()">Gönder</button>
             </div>
           </div>
@@ -207,7 +221,7 @@ app.get('/', (req, res) => {
             </div>
             
             <div style="display: grid; grid-template-columns: 1fr 2fr 2fr; gap: 5px;">
-              <input type="text" id="newShortKey" placeholder="Tuş (Örn: g)" maxlength="1">
+              <input type="text" id="newShortKey" placeholder="Klavye Tuşu (Örn: g)" maxlength="1">
               <input type="text" id="newShortLabel" placeholder="Kısayol Başlığı (Örn: Towny'ye Git)">
               <input type="text" id="newShortCmd" placeholder="Çalışacak Komut (Örn: /towny)">
             </div>
@@ -259,7 +273,7 @@ app.get('/', (req, res) => {
             <input type="text" id="ntfyTopic" value="${settings.notifications.ntfyTopic || ''}" placeholder="ntfy.sh kanal adınız (Örn: randombros_afk_notification)">
             
             <label style="font-size:12px; color:#aaa; display:block; margin-top:8px;">ntfy.sh Erişim Anahtarı (Kota Sorununu Çözer):</label>
-            <input type="text" id="ntfyToken" value="${settings.notifications.ntfyToken || ''}" placeholder="ntfy.sh sitesinden aldığınız tk_ ile başlayan token (İsteğe bağlı)">
+            <input type="text" id="ntfyToken" value="${settings.notifications.ntfyToken || ''}" placeholder="ntfy.sh sitesinden aldığınız tk_ ile başlayan token (Gerekliyse)">
             
             <label style="font-size:12px; color:#aaa; display:block; margin-top:8px;">Tetikleyici Kelimeler (virgülle ayırın):</label>
             <input type="text" id="ntfyTriggers" value="${settings.notifications.triggers ? settings.notifications.triggers.join(', ') : ''}" placeholder="Hangi kelimeler geçince telefona bildirim gelsin? (Örn: acil, yardim, baksana)">
@@ -556,7 +570,7 @@ app.listen(PORT, () => {
 });
 
 
-// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (HESAP / TOKEN DESTEKLİ) ---
+// --- TELEFONA ANLIK BİLDİRİM GÖNDERME (GÜVENLİ PLAIN TEXT / TOKEN DESTEKLİ) ---
 function sendPushNotification(title, text) {
   if (!settings.notifications.enabled) return;
   
@@ -566,14 +580,14 @@ function sendPushNotification(title, text) {
     return;
   }
 
+  // Başlık ve mesajı doğrudan düz metin gövdesi yapıyoruz (curl -d simülasyonu)
   const fullMessage = `📢 ${title}\n\n${text}`;
 
-  // HTTP Başlıklarını Ayarla
   const headers = {
     'Content-Type': 'text/plain; charset=utf-8'
   };
 
-  // Eğer kullanıcı panelden bir Token girdiyse, isteğe Authorization başlığı ekle (Kota çözümüdür)
+  // Eğer kullanıcı panelden bir token kaydettiyse isteğe yetkilendirme ekle (Kota Çözümü)
   if (settings.notifications.ntfyToken && settings.notifications.ntfyToken.trim() !== "") {
     headers['Authorization'] = `Bearer ${settings.notifications.ntfyToken.trim()}`;
   }
