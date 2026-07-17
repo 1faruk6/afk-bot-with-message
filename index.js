@@ -52,7 +52,7 @@ if (fs.existsSync(SETTINGS_PATH)) {
 
 function saveSettings() { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2)); }
 
-// --- SOCKET.IO GÜVENLİK (Cookie Kontrolü) ---
+// --- SOCKET.IO GÜVENLİK ---
 io.use((socket, next) => {
   const cookieHeader = socket.request.headers.cookie || '';
   if (cookieHeader.includes(`panel_token=${accountPassword}`)) {
@@ -92,7 +92,7 @@ function addChatToLog(sender, message) {
   const logData = { timestamp, sender, message };
   chatLog.push(logData);
   if (chatLog.length > 100) chatLog.shift();
-  io.emit('newChat', logData); // Tüm panellere canlı olarak gönder
+  io.emit('newChat', logData); 
 }
 
 function isAuthenticated(req) {
@@ -102,7 +102,6 @@ function isAuthenticated(req) {
 // --- ENVANTERİ YAYINLA ---
 function broadcastInventory() {
   if (!bot || !bot.inventory) return;
-  // Minecraft'ta ana envanter slotları genelde 9 ile 44 arasındadır.
   const items = bot.inventory.items().map(item => ({
     name: item.name,
     count: item.count,
@@ -153,13 +152,11 @@ app.get('/', (req, res) => {
         .card { background: #1e1e1e; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); position: relative; }
         h2, h3 { margin-top: 0; color: #4caf50; }
         
-        /* Chat Stilleri */
         .chat-box { background: #151515; border: 1px solid #2a2a2a; border-radius: 8px; height: 300px; overflow-y: auto; padding: 15px; font-family: 'Consolas', monospace; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
         .chat-msg { border-bottom: 1px solid #1f1f1f; padding-bottom: 4px; line-height: 1.4; }
         .chat-sender { color: #ff9800; font-weight: bold; margin-right: 5px; }
         .chat-sender.system { color: #00bcd4; }
         
-        /* Etkileşimli Chat Butonu Stili */
         .interactive-cmd { color: #00e5ff; background: rgba(0, 229, 255, 0.1); padding: 2px 5px; border-radius: 4px; cursor: pointer; text-decoration: underline; display: inline-block; transition: 0.2s;}
         .interactive-cmd:hover { background: rgba(0, 229, 255, 0.3); color: #fff; }
 
@@ -169,7 +166,6 @@ app.get('/', (req, res) => {
         .btn-danger { background: #f44336; }
         .btn-danger:hover { background: #da190b; }
         
-        /* Envanter Sistemi Stilleri */
         .inv-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-top: 15px; }
         .inv-slot { background: #2a2a2a; border: 2px solid #333; height: 45px; display: flex; justify-content: center; align-items: center; cursor: pointer; position: relative; font-size: 11px; text-align: center; border-radius: 4px; transition: 0.2s;}
         .inv-slot:hover { border-color: #4caf50; background: #333;}
@@ -187,7 +183,6 @@ app.get('/', (req, res) => {
       <div class="dashboard">
         
         <div class="column">
-          <!-- Chat Kartı -->
           <div class="card" style="flex: 1; display: flex; flex-direction: column;">
             <h2>Melonya Canlı Sohbet</h2>
             <div id="chatBox" class="chat-box"></div>
@@ -197,11 +192,9 @@ app.get('/', (req, res) => {
             </div>
           </div>
 
-          <!-- Canlı Envanter Kartı -->
           <div class="card">
             <h3>🎒 Canlı Envanter</h3>
             <p style="font-size: 12px; color: #aaa; margin-top: -8px;">İşlem yapmak istediğiniz eşyanın üzerine tıklayın.</p>
-            
             <div id="inventoryGrid" class="inv-grid"></div>
             
             <div id="actionMenu" class="action-menu">
@@ -214,7 +207,6 @@ app.get('/', (req, res) => {
         </div>
 
         <div class="column">
-          <!-- Ayarlar / Döngüler Kartı -->
           <div class="card">
             <h3>⏰ Periyodik Mesajlar</h3>
             <input type="text" id="newIntervalText" placeholder="Mesaj...">
@@ -236,11 +228,9 @@ app.get('/', (req, res) => {
         const socket = io();
         let selectedSlot = null;
 
-        // --- CANLI SOHBET SİSTEMİ (SOCKET) ---
         const chatBox = document.getElementById('chatBox');
         
         function formatInteractive(msg) {
-          // "/" ile başlayan metinleri (komutları) tıklanabilir bir butona çevirir
           return msg.replace(/(\\/\\S+)/g, '<span class="interactive-cmd" title="Bu komutu oyunda çalıştırmak için tıkla" onclick="sendCustomMessage(\\'$1\\')">$1</span>');
         }
 
@@ -260,7 +250,6 @@ app.get('/', (req, res) => {
           chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        // Geçmişi yükle ve yeni mesajları dinle
         fetch('/api/chat').then(r => r.json()).then(logs => {
           chatBox.innerHTML = '';
           logs.forEach(appendChat);
@@ -270,19 +259,16 @@ app.get('/', (req, res) => {
           appendChat(log);
         });
 
-        // --- ENVANTER SİSTEMİ (SOCKET) ---
         socket.on('inventoryUpdate', (items) => {
           const grid = document.getElementById('inventoryGrid');
           grid.innerHTML = '';
           
-          // Minecraft çantası 36 slottur (9'dan 44'e kadar indekslenir)
           for(let i = 9; i <= 44; i++) {
             const item = items.find(it => it.slot === i);
             const slotDiv = document.createElement('div');
             
             if(item) {
               slotDiv.className = 'inv-slot';
-              // Eşya ismini kısaltarak göster
               const shortName = item.name.replace('minecraft:', '').replace(/_/g, ' ');
               slotDiv.innerHTML = \`<span style="word-break: break-all;">\${shortName}</span><span class="inv-count">\${item.count}</span>\`;
               slotDiv.onclick = () => openActionMenu(item.slot, shortName, item.count);
@@ -306,7 +292,6 @@ app.get('/', (req, res) => {
           }
         }
 
-        // --- MESAJ GÖNDERME ---
         function sendManualMessage() {
           const msgInput = document.getElementById('manualMessage');
           sendCustomMessage(msgInput.value);
@@ -321,10 +306,6 @@ app.get('/', (req, res) => {
             body: JSON.stringify({ message: msg })
           });
         }
-
-        // Diğer ayar API fonksiyonları (Kısaltıldı, eski sistemin aynısı eklenebilir)
-        function addInterval() { /* ... Eski kodundaki gibi ... */ }
-        function addAutoReply() { /* ... Eski kodundaki gibi ... */ }
       </script>
     </body>
     </html>
@@ -352,7 +333,7 @@ app.post('/send-message-ajax', (req, res) => {
   res.json({ success: true });
 });
 
-// --- SOCKET.IO ENVANTER DİNLEME ---
+// --- SOCKET.IO ENVANTER AKTİVİTELERİ ---
 io.on('connection', (socket) => {
   socket.on('inventoryAction', async (data) => {
     if (!bot || !isConnected) return;
@@ -384,27 +365,20 @@ function triggerReconnect() {
   }, 10000);
 }
 
+// --- MINEFLAYER MOTORU ---
 function createBot() {
   isConnected = false;
+  let hasLoggedIn = false; // Çift şifre gönderimini engeller
   bot = mineflayer.createBot(botOptions);
 
   bot.once('spawn', () => {
     isConnected = true;
-    addChatToLog("SİSTEM", "Bot oyuna girdi!");
+    addChatToLog("SİSTEM", "Bot lobiye adım attı! Giriş komutları bekleniyor...");
     
-    // Envanter her değiştiğinde (eşya geldiğinde/gittiğinde) siteyi güncelle
     bot.inventory.on('updateSlot', () => {
       broadcastInventory();
     });
-    // İlk girişte envanteri yolla
-    setTimeout(broadcastInventory, 2000);
-    
-    setTimeout(() => {
-      if (isConnected) {
-        bot.chat(`/giriş ${accountPassword}`);
-        setTimeout(() => { if (isConnected) { bot.chat('/towny'); startIntervalLoop(); } }, 12000);
-      }
-    }, 4000);
+    setTimeout(broadcastInventory, 3000);
 
     if (townyTimer) clearInterval(townyTimer);
     townyTimer = setInterval(() => {
@@ -414,8 +388,44 @@ function createBot() {
 
   bot.on('message', (jsonMsg) => {
     if (!jsonMsg) return;
-    const cleanMessage = jsonMsg.toString().trim();
-    if (cleanMessage.length > 0) {
+    try {
+      const cleanMessage = jsonMsg.toString().trim();
+      if (cleanMessage.length === 0) return;
+
+      console.log(`[Sohbet]: ${cleanMessage}`);
+
+      // --- AKILLI GİRİŞ SİSTEMİ ---
+      // Sunucu chatten "/giriş" veya "/login" yazılmasını isterse anında yakalar
+      const lowerMsg = cleanMessage.toLowerCase();
+      if (!hasLoggedIn && (lowerMsg.includes('/giriş') || lowerMsg.includes('/login') || lowerMsg.includes('giriş yap'))) {
+        hasLoggedIn = true;
+        bot.chat(`/giriş ${accountPassword}`);
+        addChatToLog("SİSTEM", "Giriş isteği algılandı, şifre gönderildi.");
+        
+        // Giriş yaptıktan sonra asıl sunucuya aktarma tetiklenir
+        setTimeout(() => { 
+          if (isConnected) { 
+            bot.chat('/towny'); 
+            addChatToLog("SİSTEM", "Towny aktarması gönderildi.");
+            startIntervalLoop(); 
+          } 
+        }, 10000);
+      } else if (!hasLoggedIn && (lowerMsg.includes('/kayıt') || lowerMsg.includes('/register') || lowerMsg.includes('kayıt ol'))) {
+        // Eğer botun ismi kayıtlı değilse otomatik kayıt açar
+        hasLoggedIn = true;
+        bot.chat(`/kayıt ${accountPassword} ${accountPassword}`);
+        addChatToLog("SİSTEM", "Kayıt isteği algılandı, yeni hesap oluşturuldu.");
+        
+        setTimeout(() => { 
+          if (isConnected) { 
+            bot.chat('/towny'); 
+            addChatToLog("SİSTEM", "Towny aktarması gönderildi.");
+            startIntervalLoop(); 
+          } 
+        }, 10000);
+      }
+
+      // --- CHAT LOGLAMA ---
       let sender = "SUNUCU";
       let text = cleanMessage;
 
@@ -432,19 +442,41 @@ function createBot() {
       if (sender === bot.username) return;
       addChatToLog(sender, text);
 
+      // --- OTO REPLIES ---
       for (const rule of settings.autoReplies) {
         if (text.toLowerCase().includes(rule.trigger.toLowerCase())) {
           setTimeout(() => { if (bot && isConnected) { bot.chat(rule.reply); addChatToLog("SEN (Oto)", rule.reply); } }, 1500);
           break;
         }
       }
+    } catch (err) {
+      console.log("Sohbet işleme hatası yakalandı:", err.message);
     }
   });
 
-  bot.on('end', triggerReconnect);
-  bot.on('error', triggerReconnect);
+  // --- KICK/KOPMA DETAYLI LOGLAMA ---
+  bot.on('kicked', (reason) => {
+    let cleanReason = reason;
+    try {
+      const parsed = JSON.parse(reason);
+      cleanReason = parsed.text || parsed.translate || reason;
+    } catch (e) {}
+    console.log(`[SUNUCUDAN ATILDI]: ${cleanReason}`);
+    addChatToLog("SİSTEM", `Sunucudan Atıldı! Sebep: ${cleanReason}`);
+  });
+
+  bot.on('end', () => {
+    hasLoggedIn = false;
+    triggerReconnect();
+  });
+  bot.on('error', (err) => {
+    console.log("Mineflayer hata fırlattı:", err.message);
+    triggerReconnect();
+  });
 }
 
 const PORT = process.env.PORT || 3000;
-// HTTP Sunucusunu (Socket destekli) başlatıyoruz:
-server.listen(PORT, () => console.log(`Sunucu http://localhost:${PORT} başlatıldı.`));
+// Railway sağlık kontrolleri ve konteyner çökmesini önlemek için IP "0.0.0.0" olarak açılıyor
+server.listen(PORT, "0.0.0.0", () => console.log(`Sunucu aktif port: ${PORT}`));
+
+createBot();
